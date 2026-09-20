@@ -63,8 +63,23 @@
     font-family: 'Source Serif 4', serif;
     font-size: 28px;
     font-weight: 700;
-    margin: 4px 0 18px;
+    margin: 4px 0 14px;
   }
+
+  .list-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .list-tab {
+    flex: 1;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--ink-soft);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .list-tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 
   .toolbar {
     display: flex;
@@ -149,6 +164,18 @@
   #syncDisconnectBtn { background: var(--surface-2); color: var(--over); }
   .sync-status { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
 
+  .members-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+  .members-list { margin-bottom: 6px; }
+  .member-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .member-row:last-child { border-bottom: none; }
+  .member-time { color: var(--ink-faint); font-size: 11px; }
+
   .store {
     background: var(--surface);
     border-radius: 14px;
@@ -201,6 +228,19 @@
   }
   .item:last-child { border-bottom: none; }
   .item.dragging { opacity: 0.55; background: var(--surface-2); }
+  .item.checked-item { background: var(--surface-2); }
+
+  .checked-heading {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--hairline);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-faint);
+  }
 
   .item-check {
     display: flex;
@@ -233,7 +273,7 @@
     margin-left: 6px;
     white-space: nowrap;
   }
-  .item-cat {
+  .item-meta {
     display: block;
     font-size: 10px;
     color: var(--ink-faint);
@@ -386,6 +426,11 @@
 <div class="page">
   <h1>Shoppinglista</h1>
 
+  <div class="list-tabs">
+    <button type="button" class="list-tab" data-list="shared">Gemensam</button>
+    <button type="button" class="list-tab" data-list="personal">Personlig</button>
+  </div>
+
   <div class="toolbar">
     <button type="button" id="uncheckAllBtn">Avmarkera alla</button>
     <button type="button" id="clearCheckedBtn">Ta bort avbockade</button>
@@ -393,8 +438,9 @@
   </div>
 
   <div class="settings-panel" id="settingsPanel">
-    <h2>Dela listan mellan enheter</h2>
+    <h2>Dela den gemensamma listan mellan enheter</h2>
     <p>
+      Gäller bara fliken "Gemensam" – "Personlig" stannar alltid bara på den här enheten.
       Kräver ett gratis <strong>Supabase</strong>-projekt (supabase.com). Skapa ett projekt,
       kör detta i SQL-editorn där en gång:<br>
       <span class="mono" style="font-size:11px;">create table lists (id text primary key, data jsonb not null default '{}', updated_at timestamptz not null default now()); alter table lists enable row level security; create policy "public" on lists for all using (true) with check (true); alter publication supabase_realtime add table lists;</span><br>
@@ -416,6 +462,15 @@
       <button type="button" id="syncDisconnectBtn">Koppla från</button>
     </div>
     <div class="sync-status mono" id="syncStatus">Ej ansluten.</div>
+
+    <div class="members-section">
+      <label>Har använt den gemensamma listan</label>
+      <div id="membersList" class="members-list"></div>
+      <p>
+        Detta är ingen äkta behörighetskontroll – vem som helst med delningskoden kan se och
+        ändra listan. Det här är bara en förteckning över vilka namn som synkat hit hittills.
+      </p>
+    </div>
   </div>
 
   <div id="stores"></div>
@@ -434,12 +489,31 @@
 </div>
 
 <script>
-  var STORE_KEY = 'shoppinglista-v1';
+  var LISTS_KEY = 'shoppinglista-listor-v1';
+  var LEGACY_STORE_KEY = 'shoppinglista-v1';
+  var ACTIVE_LIST_KEY = 'shoppinglista-aktiv-lista-v1';
   var TEMPLATES_KEY = 'shoppinglista-mallar-v1';
   var SYNC_KEY = 'shoppinglista-sync-v1';
+  var USER_KEY = 'shoppinglista-anvandare-v1';
 
   function genId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  /* ---- Who am I: a locally-chosen display name, used to tag items and to
+     show who has synced to the shared list. Not authentication of any
+     kind - just a label the person picks for themselves. ---- */
+  function loadUserName() {
+    try { return localStorage.getItem(USER_KEY) || null; } catch (e) { return null; }
+  }
+
+  function ensureUserName() {
+    var name = loadUserName();
+    if (name) return name;
+    name = prompt('Vad heter du? Namnet visas på varor du lägger till och när du delar listan.');
+    name = (name || '').trim() || 'Okänd';
+    try { localStorage.setItem(USER_KEY, name); } catch (e) {}
+    return name;
   }
 
   /* ---- Category guessing: used to place new items sensibly before the
@@ -512,36 +586,48 @@
     return idx === -1 ? ref.length : idx;
   }
 
-  function insertItemSorted(store, item) {
-    // Prefer grouping with the last existing item of the same category,
-    // wherever in the list it actually sits.
-    var lastSameCat = -1;
+  /* Checked-off items always live after active ones in store.items (see
+     toggleItem), so "active count" doubles as the boundary index. New
+     items only ever need placing within that active prefix. */
+  function activeCount(store) {
+    var n = 0;
     for (var i = 0; i < store.items.length; i++) {
+      if (!store.items[i].d) n++;
+    }
+    return n;
+  }
+
+  function insertItemSorted(store, item) {
+    var n = activeCount(store);
+    // Prefer grouping with the last active item of the same category,
+    // wherever within the active prefix it actually sits.
+    var lastSameCat = -1;
+    for (var i = 0; i < n; i++) {
       if (store.items[i].cat === item.cat) lastSameCat = i;
     }
     if (lastSameCat !== -1) {
       store.items.splice(lastSameCat + 1, 0, item);
       return;
     }
-    // No item of this category here yet: place it relative to the store's
-    // learned category order (or the generic fallback order).
+    // No active item of this category yet: place it relative to the
+    // store's learned category order (or the generic fallback order).
     var rank = categoryRank(store, item.cat);
     var insertAt = 0;
-    for (var i = store.items.length - 1; i >= 0; i--) {
+    for (var i = n - 1; i >= 0; i--) {
       if (categoryRank(store, store.items[i].cat) <= rank) { insertAt = i + 1; break; }
       insertAt = i;
     }
     store.items.splice(insertAt, 0, item);
   }
 
-  function defaultState() {
+  function defaultSharedStores() {
     var stores = [
       {
         id: genId(),
         name: 'KFC',
         catOrder: [],
         items: [
-          { id: genId(), t: 'Ta KFC', qty: null, cat: guessCategory('Ta KFC'), d: false }
+          { id: genId(), t: 'Ta KFC', qty: null, cat: guessCategory('Ta KFC'), by: null, d: false }
         ]
       },
       {
@@ -549,13 +635,13 @@
         name: 'ICA',
         catOrder: [],
         items: [
-          { id: genId(), t: 'Färdig korv stroganoff', qty: null, cat: guessCategory('Färdig korv stroganoff'), d: false },
-          { id: genId(), t: 'Alpro sojamjölk', qty: null, cat: guessCategory('Alpro sojamjölk'), d: false },
-          { id: genId(), t: '1 röd stor mjölk', qty: null, cat: guessCategory('1 röd stor mjölk'), d: false },
-          { id: genId(), t: 'Parmesan i påse', qty: null, cat: guessCategory('Parmesan i påse'), d: false },
-          { id: genId(), t: 'Vitlök', qty: null, cat: guessCategory('Vitlök'), d: false },
-          { id: genId(), t: 'Ägg med gulare äggula', qty: null, cat: guessCategory('Ägg med gulare äggula'), d: false },
-          { id: genId(), t: 'Sweet chili-sås från Pantai (kolla om de har)', qty: null, cat: guessCategory('Sweet chili-sås från Pantai'), d: false }
+          { id: genId(), t: 'Färdig korv stroganoff', qty: null, cat: guessCategory('Färdig korv stroganoff'), by: null, d: false },
+          { id: genId(), t: 'Alpro sojamjölk', qty: null, cat: guessCategory('Alpro sojamjölk'), by: null, d: false },
+          { id: genId(), t: '1 röd stor mjölk', qty: null, cat: guessCategory('1 röd stor mjölk'), by: null, d: false },
+          { id: genId(), t: 'Parmesan i påse', qty: null, cat: guessCategory('Parmesan i påse'), by: null, d: false },
+          { id: genId(), t: 'Vitlök', qty: null, cat: guessCategory('Vitlök'), by: null, d: false },
+          { id: genId(), t: 'Ägg med gulare äggula', qty: null, cat: guessCategory('Ägg med gulare äggula'), by: null, d: false },
+          { id: genId(), t: 'Sweet chili-sås från Pantai (kolla om de har)', qty: null, cat: guessCategory('Sweet chili-sås från Pantai'), by: null, d: false }
         ]
       }
     ];
@@ -563,40 +649,106 @@
     return stores;
   }
 
-  function migrateState() {
-    state.forEach(function (store) {
+  /* Normalizes a stores array in place: fills in any fields missing from
+     an older save (or from another device's version), and re-partitions
+     each store's items so checked ones trail the active ones. */
+  function migrateStores(stores) {
+    stores.forEach(function (store) {
       if (!store.id) store.id = genId();
       if (!Array.isArray(store.items)) store.items = [];
       store.items.forEach(function (item) {
         if (!item.id) item.id = genId();
         if (item.d === undefined) item.d = false;
         if (item.qty === undefined) item.qty = null;
+        if (item.by === undefined) item.by = null;
         if (!item.cat) item.cat = guessCategory(item.t);
       });
+      var actives = store.items.filter(function (i) { return !i.d; });
+      var checkeds = store.items.filter(function (i) { return i.d; });
+      store.items = actives.concat(checkeds);
       if (!Array.isArray(store.catOrder)) learnCategoryOrder(store);
     });
   }
 
-  function load() {
+  function loadLists() {
     try {
-      var raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return defaultState();
-      var parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return defaultState();
-      return parsed;
-    } catch (e) {
-      return defaultState();
-    }
+      var raw = localStorage.getItem(LISTS_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.shared && parsed.personal) return parsed;
+      }
+    } catch (e) {}
+    // First run on this device (or an update from before "Personlig"
+    // existed): carry over any pre-existing flat list as "Gemensam".
+    var legacyStores = null;
+    try {
+      var rawOld = localStorage.getItem(LEGACY_STORE_KEY);
+      if (rawOld) {
+        var arr = JSON.parse(rawOld);
+        if (Array.isArray(arr)) legacyStores = arr;
+      }
+    } catch (e) {}
+    return {
+      shared: { stores: legacyStores || defaultSharedStores(), members: [] },
+      personal: { stores: [] }
+    };
   }
 
-  var state = load();
-  migrateState();
+  function persistLists() {
+    try { localStorage.setItem(LISTS_KEY, JSON.stringify(lists)); } catch (e) {}
+  }
+
+  function loadActiveListKey() {
+    try {
+      var v = localStorage.getItem(ACTIVE_LIST_KEY);
+      return (v === 'shared' || v === 'personal') ? v : 'shared';
+    } catch (e) { return 'shared'; }
+  }
+
+  var lists = loadLists();
+  migrateStores(lists.shared.stores);
+  migrateStores(lists.personal.stores);
+  if (!Array.isArray(lists.shared.members)) lists.shared.members = [];
+
+  var activeListKey = loadActiveListKey();
+  var state = lists[activeListKey].stores;
+
+  function touchSelfAsMember() {
+    var name = ensureUserName();
+    var found = null;
+    for (var i = 0; i < lists.shared.members.length; i++) {
+      if (lists.shared.members[i].name === name) { found = lists.shared.members[i]; break; }
+    }
+    if (!found) { found = { name: name, lastSeen: 0 }; lists.shared.members.push(found); }
+    found.lastSeen = Date.now();
+  }
+
+  function mergeMembers(remoteMembers) {
+    if (!Array.isArray(remoteMembers)) return;
+    remoteMembers.forEach(function (rm) {
+      var found = null;
+      for (var i = 0; i < lists.shared.members.length; i++) {
+        if (lists.shared.members[i].name === rm.name) { found = lists.shared.members[i]; break; }
+      }
+      if (!found) lists.shared.members.push({ name: rm.name, lastSeen: rm.lastSeen || 0 });
+      else if ((rm.lastSeen || 0) > (found.lastSeen || 0)) found.lastSeen = rm.lastSeen;
+    });
+  }
 
   function save(skipSync) {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    } catch (e) {}
-    if (!skipSync) pushRemote();
+    lists[activeListKey].stores = state;
+    if (activeListKey === 'shared') touchSelfAsMember();
+    persistLists();
+    if (!skipSync && activeListKey === 'shared') pushRemote();
+  }
+
+  function switchList(key) {
+    if (key === activeListKey || (key !== 'shared' && key !== 'personal')) return;
+    activeListKey = key;
+    try { localStorage.setItem(ACTIVE_LIST_KEY, key); } catch (e) {}
+    state = lists[activeListKey].stores;
+    renderTabs();
+    render();
   }
 
   function findStore(storeId) {
@@ -636,7 +788,7 @@
     var store = findStore(storeId);
     if (!store) return;
     var qty = (qtyRaw || '').trim();
-    var item = { id: genId(), t: text, qty: qty || null, cat: guessCategory(text), d: false };
+    var item = { id: genId(), t: text, qty: qty || null, cat: guessCategory(text), by: ensureUserName(), d: false };
     insertItemSorted(store, item);
     save();
     render();
@@ -671,8 +823,22 @@
   function toggleItem(storeId, itemId) {
     var store = findStore(storeId);
     if (!store) return;
-    var item = findItem(store, itemId);
-    if (item) item.d = !item.d;
+    var idx = -1;
+    for (var i = 0; i < store.items.length; i++) {
+      if (store.items[i].id === itemId) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    var item = store.items[idx];
+    store.items.splice(idx, 1);
+    if (!item.d) {
+      // Checking off: park it at the end, under "Avbockade".
+      item.d = true;
+      store.items.push(item);
+    } else {
+      // Unchecking: rejoin the active items, grouped by category again.
+      item.d = false;
+      insertItemSorted(store, item);
+    }
     save();
     render();
   }
@@ -687,7 +853,8 @@
     }
     if (idx === -1) return;
     var item = from.items.splice(idx, 1)[0];
-    insertItemSorted(to, item);
+    if (item.d) to.items.push(item);
+    else insertItemSorted(to, item);
     learnCategoryOrder(from);
     learnCategoryOrder(to);
     save();
@@ -766,7 +933,7 @@
       tplStore.items.forEach(function (tplItem) {
         var alreadyThere = store.items.some(function (it) { return it.t === tplItem.t && !it.d; });
         if (alreadyThere) return;
-        var item = { id: genId(), t: tplItem.t, qty: tplItem.qty || null, cat: tplItem.cat || guessCategory(tplItem.t), d: false };
+        var item = { id: genId(), t: tplItem.t, qty: tplItem.qty || null, cat: tplItem.cat || guessCategory(tplItem.t), by: ensureUserName(), d: false };
         insertItemSorted(store, item);
       });
       learnCategoryOrder(store);
@@ -787,7 +954,8 @@
     renderTemplates();
   }
 
-  /* ---- Realtime sync (optional, via a user-supplied Supabase project) ---- */
+  /* ---- Realtime sync (optional, via a user-supplied Supabase project).
+     Only the "Gemensam" list ever syncs; "Personlig" is local-only. ---- */
   var syncConfig = loadSyncConfig();
   var supabaseClient = null;
   var syncChannel = null;
@@ -802,8 +970,8 @@
   }
 
   function setSyncStatus(text) {
-    var el = document.getElementById('syncStatus');
-    if (el) el.textContent = text;
+    var elx = document.getElementById('syncStatus');
+    if (elx) elx.textContent = text;
   }
 
   function ensureSupabaseLib(cb) {
@@ -846,6 +1014,20 @@
     setSyncStatus('Ej ansluten.');
   }
 
+  function applyRemotePayload(payload) {
+    if (!payload) return;
+    var stores = Array.isArray(payload.stores) ? payload.stores : (Array.isArray(payload) ? payload : null);
+    if (stores) {
+      lists.shared.stores = stores;
+      migrateStores(lists.shared.stores);
+    }
+    mergeMembers(payload.members);
+    touchSelfAsMember();
+    if (activeListKey === 'shared') state = lists.shared.stores;
+    persistLists();
+    render();
+  }
+
   function pullRemote() {
     if (!supabaseClient || !syncConfig) return;
     supabaseClient.from('lists').select('data').eq('id', syncConfig.code).maybeSingle()
@@ -854,12 +1036,12 @@
           setSyncStatus('Fel vid hämtning: ' + res.error.message);
           return;
         }
-        if (res.data && res.data.data && res.data.data.length !== undefined) {
-          state = res.data.data;
-          migrateState();
-          save(true);
-          render();
+        if (res.data && res.data.data) {
+          applyRemotePayload(res.data.data);
+          pushRemote();
         } else {
+          touchSelfAsMember();
+          persistLists();
           pushRemote();
         }
         setSyncStatus('Ansluten. Delningskod: ' + syncConfig.code);
@@ -869,7 +1051,11 @@
 
   function pushRemote() {
     if (!supabaseClient || !syncConfig) return;
-    supabaseClient.from('lists').upsert({ id: syncConfig.code, data: state, updated_at: new Date().toISOString() })
+    supabaseClient.from('lists').upsert({
+      id: syncConfig.code,
+      data: { stores: lists.shared.stores, members: lists.shared.members },
+      updated_at: new Date().toISOString()
+    })
       .then(function (res) { if (res.error) setSyncStatus('Fel vid synk: ' + res.error.message); })
       .catch(function (e) { setSyncStatus('Fel vid synk: ' + e.message); });
   }
@@ -879,10 +1065,7 @@
     syncChannel = supabaseClient.channel('list-' + syncConfig.code)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'lists', filter: 'id=eq.' + syncConfig.code }, function (payload) {
         if (!payload.new || !payload.new.data) return;
-        state = payload.new.data;
-        migrateState();
-        save(true);
-        render();
+        applyRemotePayload(payload.new.data);
       })
       .subscribe();
   }
@@ -935,12 +1118,13 @@
     return node;
   }
 
-  /* ---- Drag-to-reorder within a store's list, using pointer events so it
-     works with touch and mouse alike. Cross-store moves go through the
-     store-picker modal instead, since cross-container touch drag is
-     unreliable on phones. ---- */
+  /* ---- Drag-to-reorder within a store's active list, using pointer
+     events so it works with touch and mouse alike. Cross-store moves go
+     through the store-picker modal instead, since cross-container touch
+     drag is unreliable on phones. Checked-off items aren't draggable. ---- */
   function attachDrag(li, listEl, store) {
     var handle = li.querySelector('.drag-handle');
+    if (!handle) return;
     var pid = null;
 
     function onMove(ev) {
@@ -949,21 +1133,17 @@
       // item itself: reparenting `li` mid-drag makes Chromium drop pointer
       // capture (set on a child of li), which would silently end the drag
       // after a single step. `li` stays put in the DOM the whole time.
-      var items = Array.prototype.slice.call(listEl.children).filter(function (n) { return n.classList.contains('item') && n !== li; });
+      var items = Array.prototype.slice.call(listEl.children).filter(function (n) { return n.classList.contains('item') && !n.classList.contains('checked-item') && n !== li; });
       var y = ev.clientY;
       for (var i = 0; i < items.length; i++) {
         var r = items[i].getBoundingClientRect();
         var mid = r.top + r.height / 2;
         var pos = items[i].compareDocumentPosition(li);
         if (y < mid && (pos & Node.DOCUMENT_POSITION_FOLLOWING)) {
-          // items[i] sits above li; pointer wants li above it too, so pull
-          // items[i] down to right after li instead of moving li up.
           listEl.insertBefore(items[i], li.nextSibling);
           break;
         }
         if (y > mid && (pos & Node.DOCUMENT_POSITION_PRECEDING)) {
-          // items[i] sits below li; pointer wants li below it, so pull
-          // items[i] up to right before li instead of moving li down.
           listEl.insertBefore(items[i], li);
           break;
         }
@@ -979,12 +1159,13 @@
       handle.removeEventListener('pointercancel', onUp);
       pid = null;
 
-      var newOrderIds = Array.prototype.slice.call(listEl.children)
-        .filter(function (n) { return n.classList.contains('item'); })
+      var newActiveIds = Array.prototype.slice.call(listEl.children)
+        .filter(function (n) { return n.classList.contains('item') && !n.classList.contains('checked-item'); })
         .map(function (n) { return n.getAttribute('data-item-id'); });
       var byId = {};
       store.items.forEach(function (it) { byId[it.id] = it; });
-      store.items = newOrderIds.map(function (id) { return byId[id]; });
+      var checkedItems = store.items.filter(function (it) { return it.d; });
+      store.items = newActiveIds.map(function (id) { return byId[id]; }).concat(checkedItems);
       learnCategoryOrder(store);
       save();
       render();
@@ -1000,7 +1181,7 @@
     });
   }
 
-  function renderItem(store, item) {
+  function renderItem(store, item, isActive) {
     var checkbox = el('input', { type: 'checkbox' });
     checkbox.checked = item.d;
     checkbox.addEventListener('change', function () { toggleItem(store.id, item.id); });
@@ -1008,29 +1189,37 @@
     var textSpan = el('span', { class: 'item-text', text: item.t });
     if (item.qty) textSpan.appendChild(el('span', { class: 'qty-pill mono', text: item.qty }));
 
+    var metaText = item.cat;
+    if (activeListKey === 'shared' && item.by) metaText += ' · ' + item.by;
+
     var textWrap = el('div', { class: 'item-text-wrap' }, [
       textSpan,
-      el('span', { class: 'item-cat mono', text: item.cat })
+      el('span', { class: 'item-meta mono', text: metaText })
     ]);
 
     var label = el('label', { class: 'item-check' }, [checkbox, textWrap]);
 
-    var dragHandle = el('button', { type: 'button', class: 'icon-btn drag-handle', title: 'Flytta i listan', text: '⠿' });
-
-    var moveBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Flytta till annan affär', text: '⇄' });
-    moveBtn.addEventListener('click', function () {
-      showStorePicker(store.id, function (targetId) { moveItemToStore(store.id, item.id, targetId); });
-    });
-
-    var editBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Redigera', text: '✎' });
-    editBtn.addEventListener('click', function () { editItem(store.id, item.id); });
-
     var removeBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort', text: '✕' });
     removeBtn.addEventListener('click', function () { removeItem(store.id, item.id); });
 
-    var actions = el('div', { class: 'item-actions' }, [dragHandle, moveBtn, editBtn, removeBtn]);
+    var actionButtons;
+    if (isActive) {
+      var dragHandle = el('button', { type: 'button', class: 'icon-btn drag-handle', title: 'Flytta i listan', text: '⠿' });
+      var moveBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Flytta till annan affär', text: '⇄' });
+      moveBtn.addEventListener('click', function () {
+        showStorePicker(store.id, function (targetId) { moveItemToStore(store.id, item.id, targetId); });
+      });
+      var editBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Redigera', text: '✎' });
+      editBtn.addEventListener('click', function () { editItem(store.id, item.id); });
+      actionButtons = [dragHandle, moveBtn, editBtn, removeBtn];
+    } else {
+      actionButtons = [removeBtn];
+    }
 
-    var li = el('li', { class: 'item' + (item.d ? ' done' : ''), 'data-item-id': item.id }, [label, actions]);
+    var actions = el('div', { class: 'item-actions' }, actionButtons);
+
+    var liClass = 'item' + (item.d ? ' done checked-item' : '');
+    var li = el('li', { class: liClass, 'data-item-id': item.id }, [label, actions]);
     return li;
   }
 
@@ -1046,15 +1235,27 @@
       deleteBtn
     ]);
 
+    var actives = store.items.filter(function (i) { return !i.d; });
+    var checkeds = store.items.filter(function (i) { return i.d; });
+
     var list = el('ul', { class: 'items' });
-    if (store.items.length === 0) {
+    if (actives.length === 0 && checkeds.length === 0) {
       list.appendChild(el('li', { class: 'empty-hint', text: 'Inga varor än.' }));
     } else {
-      store.items.forEach(function (item) {
-        var li = renderItem(store, item);
+      actives.forEach(function (item) {
+        var li = renderItem(store, item, true);
         list.appendChild(li);
         attachDrag(li, list, store);
       });
+      if (checkeds.length) {
+        list.appendChild(el('li', { class: 'checked-heading' }, [
+          el('span', { text: 'Avbockade' }),
+          el('span', { class: 'mono', text: String(checkeds.length) })
+        ]));
+        checkeds.forEach(function (item) {
+          list.appendChild(renderItem(store, item, false));
+        });
+      }
     }
 
     var textInput = el('input', { type: 'text', class: 'item-text-input', placeholder: 'Lägg till vara…', autocomplete: 'off' });
@@ -1086,6 +1287,43 @@
       });
     }
     renderTemplates();
+    renderMembers();
+  }
+
+  function renderTabs() {
+    var tabs = document.querySelectorAll('.list-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-list') === activeListKey);
+    }
+  }
+
+  function relTime(ts) {
+    if (!ts) return '';
+    var diff = Date.now() - ts;
+    var min = Math.round(diff / 60000);
+    if (min < 1) return 'nu';
+    if (min < 60) return min + ' min sedan';
+    var hr = Math.round(min / 60);
+    if (hr < 24) return hr + ' tim sedan';
+    var day = Math.round(hr / 24);
+    return day + ' dag' + (day === 1 ? '' : 'ar') + ' sedan';
+  }
+
+  function renderMembers() {
+    var container = document.getElementById('membersList');
+    if (!container) return;
+    container.innerHTML = '';
+    var mem = (lists.shared.members || []).slice().sort(function (a, b) { return (b.lastSeen || 0) - (a.lastSeen || 0); });
+    if (mem.length === 0) {
+      container.appendChild(el('p', { class: 'empty-hint', text: 'Ingen har synkat till den gemensamma listan än.' }));
+      return;
+    }
+    mem.forEach(function (m) {
+      container.appendChild(el('div', { class: 'member-row' }, [
+        el('span', { text: m.name }),
+        el('span', { class: 'mono member-time', text: relTime(m.lastSeen) })
+      ]));
+    });
   }
 
   function renderTemplates() {
@@ -1117,6 +1355,13 @@
   document.getElementById('clearCheckedBtn').addEventListener('click', clearChecked);
   document.getElementById('saveTemplateBtn').addEventListener('click', saveTemplate);
 
+  var tabButtons = document.querySelectorAll('.list-tab');
+  for (var ti = 0; ti < tabButtons.length; ti++) {
+    tabButtons[ti].addEventListener('click', function (e) {
+      switchList(e.currentTarget.getAttribute('data-list'));
+    });
+  }
+
   document.getElementById('addStoreForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var input = document.getElementById('addStoreInput');
@@ -1126,6 +1371,7 @@
 
   document.getElementById('settingsToggleBtn').addEventListener('click', function () {
     document.getElementById('settingsPanel').classList.toggle('open');
+    renderMembers();
   });
 
   document.getElementById('syncGenCodeBtn').addEventListener('click', function () {
@@ -1162,6 +1408,7 @@
     });
   }
 
+  renderTabs();
   render();
 </script>
 </body>
