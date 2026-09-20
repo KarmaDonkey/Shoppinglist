@@ -373,6 +373,18 @@
   .paste-box textarea { width: 100%; resize: vertical; font-family: inherit; }
   .paste-row { display: flex; gap: 8px; margin-top: 8px; }
   .paste-row button { flex: 1; }
+  .paste-suggestions { display: none; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .paste-suggestions.open { display: flex; }
+  .paste-suggestion {
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--hairline);
+    background: var(--surface-2);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
 
   .app-version { text-align: center; font-size: 11px; color: var(--ink-faint); margin-top: 32px; }
 
@@ -540,7 +552,8 @@
 
   <div class="section-heading">Klistra in lista</div>
   <div class="paste-box">
-    <textarea id="pasteTextarea" rows="5" placeholder="Klistra in text. Skriv en affärs namn på egen rad för att gruppera varorna under den (måste matcha en affär du redan skapat) — allt annat hamnar under &quot;Osorterat&quot;."></textarea>
+    <textarea id="pasteTextarea" rows="5" placeholder="Klistra in text. Skriv en affärs namn på egen rad för att gruppera varorna under den, eller skriv @ för att få förslag — allt annat hamnar under &quot;Osorterat&quot;."></textarea>
+    <div class="paste-suggestions" id="pasteSuggestions"></div>
     <div class="paste-row">
       <button type="button" id="pasteAddBtn">Lägg till</button>
     </div>
@@ -1633,6 +1646,51 @@
   document.getElementById('uncheckAllBtn').addEventListener('click', uncheckAll);
   document.getElementById('clearCheckedBtn').addEventListener('click', clearChecked);
   document.getElementById('pasteAddBtn').addEventListener('click', addPastedLines);
+
+  /* "@" in the paste box triggers store-name suggestions below the
+     textarea, since a real caret-anchored popup is fragile on mobile
+     keyboards. Finds the nearest unbroken "@token" ending at the cursor
+     and matches it against known store names. */
+  function getAtQuery(textarea) {
+    var pos = textarea.selectionStart;
+    var before = textarea.value.slice(0, pos);
+    var atIndex = before.lastIndexOf('@');
+    if (atIndex === -1) return null;
+    var query = before.slice(atIndex + 1);
+    if (/\s/.test(query)) return null;
+    return { atIndex: atIndex, query: query };
+  }
+
+  function renderPasteSuggestions() {
+    var textarea = document.getElementById('pasteTextarea');
+    var container = document.getElementById('pasteSuggestions');
+    container.innerHTML = '';
+    var ctx = getAtQuery(textarea);
+    if (!ctx) { container.classList.remove('open'); return; }
+    var q = ctx.query.toLowerCase();
+    var matches = state.filter(function (s) { return s.name.toLowerCase().indexOf(q) !== -1; });
+    if (matches.length === 0) { container.classList.remove('open'); return; }
+    matches.forEach(function (s) {
+      var btn = el('button', { type: 'button', class: 'paste-suggestion', text: s.name });
+      btn.addEventListener('click', function () {
+        var text = textarea.value;
+        var newText = text.slice(0, ctx.atIndex) + s.name + text.slice(ctx.atIndex + 1 + ctx.query.length);
+        textarea.value = newText;
+        var newPos = ctx.atIndex + s.name.length;
+        textarea.focus();
+        textarea.setSelectionRange(newPos, newPos);
+        container.innerHTML = '';
+        container.classList.remove('open');
+      });
+      container.appendChild(btn);
+    });
+    container.classList.add('open');
+  }
+
+  var pasteTextareaEl = document.getElementById('pasteTextarea');
+  pasteTextareaEl.addEventListener('input', renderPasteSuggestions);
+  pasteTextareaEl.addEventListener('click', renderPasteSuggestions);
+  pasteTextareaEl.addEventListener('keyup', renderPasteSuggestions);
   document.getElementById('manageStoresBtn').addEventListener('click', showManageStoresModal);
 
   document.getElementById('globalAddForm').addEventListener('submit', function (e) {
