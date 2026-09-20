@@ -471,7 +471,9 @@
       Gäller bara fliken "Gemensam" – "Personlig" stannar alltid bara på den här enheten.
       Kräver ett gratis <strong>Supabase</strong>-projekt (supabase.com). Skapa ett projekt,
       kör detta i SQL-editorn där en gång:<br>
-      <span class="mono" style="font-size:11px;">create table lists (id text primary key, data jsonb not null default '{}', updated_at timestamptz not null default now()); alter table lists enable row level security; create policy "public" on lists for all using (true) with check (true); alter publication supabase_realtime add table lists;</span><br>
+      <span class="mono" style="font-size:11px;">create table lists (id text primary key, data jsonb not null default '{}', updated_at timestamptz not null default now()); alter table lists enable row level security; create policy "public" on lists for all using (true) with check (true); grant usage on schema public to anon; grant select, insert, update, delete on table public.lists to anon; alter publication supabase_realtime add table lists;</span><br>
+      Om du redan skapat tabellen och får felet "permission denied for table lists": kör bara de två
+      <span class="mono" style="font-size:11px;">grant</span>-raderna ovan separat, ingen anledning att göra om resten.<br>
       Klistra sedan in Project URL och anon key från projektets API-inställningar nedan, och
       använd samma delningskod på båda enheterna.
     </p>
