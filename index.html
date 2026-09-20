@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shoppinglista</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #EDE8DC;
+    --surface: #E4DDCB;
+    --surface-2: #DCD4BF;
+    --ink: #2A2620;
+    --ink-soft: #6B6250;
+    --ink-faint: #8E846E;
+    --accent: #96721C;
+    --good: #4B6B45;
+    --over: #8C3B32;
+    --hairline: rgba(42, 38, 32, 0.14);
+    --shadow: rgba(42, 38, 32, 0.16);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1B1917;
+      --surface: #242220;
+      --surface-2: #2C2A26;
+      --ink: #EDE6D8;
+      --ink-soft: #A69C89;
+      --ink-faint: #7A7263;
+      --accent: #C9A227;
+      --good: #7FA36E;
+      --over: #C06256;
+      --hairline: rgba(237, 230, 216, 0.12);
+      --shadow: rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    min-height: 100%;
+  }
+  body { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+  .page {
+    max-width: 460px;
+    margin: 0 auto;
+    min-height: 100vh;
+    padding: max(20px, env(safe-area-inset-top)) 16px 40px;
+  }
+
+  h1 {
+    font-family: 'Source Serif 4', serif;
+    font-size: 28px;
+    font-weight: 700;
+    margin: 4px 0 18px;
+  }
+
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .toolbar button {
+    flex: 1;
+    padding: 10px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--ink-soft);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .toolbar button:active { background: var(--surface-2); }
+
+  .store {
+    background: var(--surface);
+    border-radius: 14px;
+    box-shadow: 0 1px 3px var(--shadow);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .store-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 14px 10px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .store-header h2 {
+    font-family: 'Source Serif 4', serif;
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .store-count {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-left: 8px;
+  }
+
+  .icon-btn {
+    border: none;
+    background: transparent;
+    color: var(--ink-faint);
+    font-size: 16px;
+    line-height: 1;
+    padding: 6px;
+    cursor: pointer;
+    border-radius: 8px;
+  }
+  .icon-btn:active { background: var(--surface-2); }
+  .icon-btn:disabled { opacity: 0.25; cursor: default; }
+  .icon-btn.danger:active { color: var(--over); }
+
+  .items { list-style: none; margin: 0; padding: 0; }
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .item:last-child { border-bottom: none; }
+
+  .item-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+  }
+  .item-check input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    accent-color: var(--good);
+  }
+  .item-text {
+    font-size: 15px;
+    word-break: break-word;
+  }
+  .item.done .item-text {
+    text-decoration: line-through;
+    color: var(--ink-faint);
+  }
+
+  .item-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .item-actions button { font-size: 14px; }
+
+  .add-form {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px 14px;
+  }
+  .add-form input {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--hairline);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 15px;
+  }
+  .add-form input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .add-form button {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: var(--bg);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .add-form button:active { opacity: 0.85; }
+
+  .empty-hint {
+    padding: 14px;
+    font-size: 13px;
+    color: var(--ink-faint);
+    font-style: italic;
+  }
+
+  .new-store {
+    margin-top: 24px;
+  }
+  .new-store h2 {
+    font-family: 'Source Serif 4', serif;
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: var(--ink-soft);
+  }
+
+  .empty-state {
+    text-align: center;
+    color: var(--ink-faint);
+    padding: 40px 16px;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Shoppinglista</h1>
+
+  <div class="toolbar">
+    <button type="button" id="uncheckAllBtn">Avmarkera alla</button>
+    <button type="button" id="clearCheckedBtn">Ta bort avbockade</button>
+  </div>
+
+  <div id="stores"></div>
+
+  <div class="new-store">
+    <h2>Ny affär</h2>
+    <form class="add-form" id="addStoreForm">
+      <input type="text" id="addStoreInput" placeholder="Namn på affär…" autocomplete="off">
+      <button type="submit">Skapa</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  var STORE_KEY = 'shoppinglista-v1';
+
+  function genId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function defaultState() {
+    return [
+      {
+        id: genId(),
+        name: 'KFC',
+        items: [
+          { id: genId(), t: 'Ta KFC', d: false }
+        ]
+      },
+      {
+        id: genId(),
+        name: 'ICA',
+        items: [
+          { id: genId(), t: 'Färdig korv stroganoff', d: false },
+          { id: genId(), t: 'Alpro sojamjölk', d: false },
+          { id: genId(), t: '1 röd stor mjölk', d: false },
+          { id: genId(), t: 'Parmesan i påse', d: false },
+          { id: genId(), t: 'Vitlök', d: false },
+          { id: genId(), t: 'Ägg med gulare äggula', d: false },
+          { id: genId(), t: 'Sweet chili-sås från Pantai (kolla om de har)', d: false }
+        ]
+      }
+    ];
+  }
+
+  var state = load();
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return defaultState();
+      var parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return defaultState();
+      return parsed;
+    } catch (e) {
+      return defaultState();
+    }
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  function findStore(storeId) {
+    for (var i = 0; i < state.length; i++) {
+      if (state[i].id === storeId) return state[i];
+    }
+    return null;
+  }
+
+  function addStore(name) {
+    name = name.trim();
+    if (!name) return;
+    state.push({ id: genId(), name: name, items: [] });
+    save();
+    render();
+  }
+
+  function removeStore(storeId) {
+    var store = findStore(storeId);
+    if (!store) return;
+    if (!confirm('Ta bort affären "' + store.name + '" och alla dess varor?')) return;
+    state = state.filter(function (s) { return s.id !== storeId; });
+    save();
+    render();
+  }
+
+  function addItem(storeId, text) {
+    text = text.trim();
+    if (!text) return;
+    var store = findStore(storeId);
+    if (!store) return;
+    store.items.push({ id: genId(), t: text, d: false });
+    save();
+    render();
+  }
+
+  function removeItem(storeId, itemId) {
+    var store = findStore(storeId);
+    if (!store) return;
+    store.items = store.items.filter(function (i) { return i.id !== itemId; });
+    save();
+    render();
+  }
+
+  function toggleItem(storeId, itemId) {
+    var store = findStore(storeId);
+    if (!store) return;
+    for (var i = 0; i < store.items.length; i++) {
+      if (store.items[i].id === itemId) {
+        store.items[i].d = !store.items[i].d;
+        break;
+      }
+    }
+    save();
+    render();
+  }
+
+  function moveItem(storeId, itemId, dir) {
+    var store = findStore(storeId);
+    if (!store) return;
+    var idx = -1;
+    for (var i = 0; i < store.items.length; i++) {
+      if (store.items[i].id === itemId) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    var newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= store.items.length) return;
+    var tmp = store.items[idx];
+    store.items[idx] = store.items[newIdx];
+    store.items[newIdx] = tmp;
+    save();
+    render();
+  }
+
+  function uncheckAll() {
+    state.forEach(function (store) {
+      store.items.forEach(function (item) { item.d = false; });
+    });
+    save();
+    render();
+  }
+
+  function clearChecked() {
+    var anyChecked = state.some(function (store) {
+      return store.items.some(function (item) { return item.d; });
+    });
+    if (!anyChecked) return;
+    if (!confirm('Ta bort alla avbockade varor i hela listan?')) return;
+    state.forEach(function (store) {
+      store.items = store.items.filter(function (item) { return !item.d; });
+    });
+    save();
+    render();
+  }
+
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        if (k === 'class') node.className = attrs[k];
+        else if (k === 'text') node.textContent = attrs[k];
+        else node.setAttribute(k, attrs[k]);
+      });
+    }
+    (children || []).forEach(function (c) { if (c) node.appendChild(c); });
+    return node;
+  }
+
+  function renderItem(store, item) {
+    var checkbox = el('input', { type: 'checkbox' });
+    checkbox.checked = item.d;
+    checkbox.addEventListener('change', function () { toggleItem(store.id, item.id); });
+
+    var label = el('label', { class: 'item-check' }, [
+      checkbox,
+      el('span', { class: 'item-text', text: item.t })
+    ]);
+
+    var upBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Flytta upp', text: '↑' });
+    upBtn.addEventListener('click', function () { moveItem(store.id, item.id, -1); });
+
+    var downBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Flytta ner', text: '↓' });
+    downBtn.addEventListener('click', function () { moveItem(store.id, item.id, 1); });
+
+    var removeBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort', text: '✕' });
+    removeBtn.addEventListener('click', function () { removeItem(store.id, item.id); });
+
+    var actions = el('div', { class: 'item-actions' }, [upBtn, downBtn, removeBtn]);
+
+    var li = el('li', { class: 'item' + (item.d ? ' done' : '') }, [label, actions]);
+    return li;
+  }
+
+  function renderStore(store) {
+    var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort affär', text: '✕' });
+    deleteBtn.addEventListener('click', function () { removeStore(store.id); });
+
+    var header = el('div', { class: 'store-header' }, [
+      el('h2', {}, [
+        document.createTextNode(store.name),
+        el('span', { class: 'store-count mono', text: '(' + store.items.length + ')' })
+      ]),
+      deleteBtn
+    ]);
+
+    var list = el('ul', { class: 'items' });
+    if (store.items.length === 0) {
+      list.appendChild(el('li', { class: 'empty-hint', text: 'Inga varor än.' }));
+    } else {
+      store.items.forEach(function (item) {
+        list.appendChild(renderItem(store, item));
+      });
+    }
+
+    var input = el('input', { type: 'text', placeholder: 'Lägg till vara…', autocomplete: 'off' });
+    var form = el('form', { class: 'add-form' }, [
+      input,
+      el('button', { type: 'submit', text: 'Lägg till' })
+    ]);
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      addItem(store.id, input.value);
+      input.value = '';
+      input.focus();
+    });
+
+    return el('div', { class: 'store' }, [header, list, form]);
+  }
+
+  function render() {
+    var container = document.getElementById('stores');
+    container.innerHTML = '';
+    if (state.length === 0) {
+      container.appendChild(el('div', { class: 'empty-state', text: 'Inga affärer än. Skapa en nedan.' }));
+      return;
+    }
+    state.forEach(function (store) {
+      container.appendChild(renderStore(store));
+    });
+  }
+
+  document.getElementById('uncheckAllBtn').addEventListener('click', uncheckAll);
+  document.getElementById('clearCheckedBtn').addEventListener('click', clearChecked);
+
+  document.getElementById('addStoreForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var input = document.getElementById('addStoreInput');
+    addStore(input.value);
+    input.value = '';
+  });
+
+  render();
+</script>
+</body>
+</html>
