@@ -127,7 +127,6 @@
     color: var(--ink-soft);
     margin: 10px 0 4px;
   }
-  .settings-panel .code-row { display: flex; gap: 6px; }
   .settings-panel input {
     width: 100%;
     padding: 9px 10px;
@@ -137,17 +136,6 @@
     color: var(--ink);
     font-family: 'IBM Plex Mono', monospace;
     font-size: 13px;
-  }
-  .settings-panel .code-row button {
-    flex: 0 0 auto;
-    padding: 0 12px;
-    border-radius: 8px;
-    border: 1px solid var(--hairline);
-    background: var(--surface-2);
-    color: var(--ink-soft);
-    font-family: inherit;
-    font-size: 12px;
-    cursor: pointer;
   }
   .sync-actions { display: flex; gap: 8px; margin-top: 12px; }
   .sync-actions button {
@@ -160,8 +148,9 @@
     font-weight: 600;
     cursor: pointer;
   }
-  #syncConnectBtn { background: var(--accent); color: var(--bg); }
-  #syncDisconnectBtn { background: var(--surface-2); color: var(--over); }
+  .btn-primary { background: var(--accent); color: var(--bg); }
+  .btn-secondary { background: var(--surface-2); color: var(--ink-soft); }
+  .btn-danger { background: var(--surface-2); color: var(--over); }
   .sync-status { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
 
   .members-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hairline); }
@@ -283,19 +272,21 @@
   .item-actions {
     display: flex;
     align-items: center;
-    gap: 0;
     flex-shrink: 0;
   }
   .item-actions button { font-size: 14px; }
+  .item-actions .icon-btn.danger { margin-left: 8px; }
   .drag-handle { cursor: grab; touch-action: none; font-size: 16px; }
 
   .add-form {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     padding: 10px 14px 14px;
   }
-  .add-form .item-text-input { flex: 1; min-width: 0; }
-  .add-form .qty-input { flex: 0 0 62px; }
+  .add-form .item-text-input { flex: 1 1 100%; }
+  .add-form .qty-input { flex: 0 0 84px; }
+  .add-form button[type="submit"] { flex: 1 1 auto; min-width: 0; }
   .add-form input {
     padding: 10px 12px;
     border-radius: 10px;
@@ -304,6 +295,7 @@
     color: var(--ink);
     font-family: inherit;
     font-size: 15px;
+    min-width: 0;
   }
   .add-form input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .add-form button {
@@ -319,6 +311,9 @@
     white-space: nowrap;
   }
   .add-form button:active { opacity: 0.85; }
+  /* The store-creation form only has one input, so it can stay a single row. */
+  #addStoreForm .item-text-input { flex: 1 1 auto; }
+  #addStoreForm button[type="submit"] { flex: 0 0 auto; }
 
   .empty-hint {
     padding: 14px;
@@ -438,38 +433,14 @@
   </div>
 
   <div class="settings-panel" id="settingsPanel">
-    <h2>Dela den gemensamma listan mellan enheter</h2>
-    <p>
-      Gäller bara fliken "Gemensam" – "Personlig" stannar alltid bara på den här enheten.
-      Kräver ett gratis <strong>Supabase</strong>-projekt (supabase.com). Skapa ett projekt,
-      kör detta i SQL-editorn där en gång:<br>
-      <span class="mono" style="font-size:11px;">create table lists (id text primary key, data jsonb not null default '{}', updated_at timestamptz not null default now()); alter table lists enable row level security; create policy "public" on lists for all using (true) with check (true); alter publication supabase_realtime add table lists;</span><br>
-      Klistra sedan in Project URL och anon key från projektets API-inställningar nedan, och
-      använd samma delningskod på båda enheterna.
-    </p>
-    <label for="syncUrlInput">Supabase Project URL</label>
-    <input type="text" id="syncUrlInput" placeholder="https://xxxx.supabase.co" autocomplete="off">
-    <label for="syncKeyInput">Supabase anon key</label>
-    <input type="text" id="syncKeyInput" placeholder="eyJhbGciOi…" autocomplete="off">
-    <label for="syncCodeInput">Delningskod</label>
-    <div class="code-row">
-      <input type="text" id="syncCodeInput" placeholder="t.ex. familjen-abc123" autocomplete="off">
-      <button type="button" id="syncGenCodeBtn">Slumpa</button>
-      <button type="button" id="syncCopyCodeBtn">Kopiera</button>
-    </div>
-    <div class="sync-actions">
-      <button type="button" id="syncConnectBtn">Anslut</button>
-      <button type="button" id="syncDisconnectBtn">Koppla från</button>
-    </div>
-    <div class="sync-status mono" id="syncStatus">Ej ansluten.</div>
+    <h2>Dela den gemensamma listan via OneDrive</h2>
+    <p>Gäller bara fliken "Gemensam" – "Personlig" stannar alltid bara på den här enheten.</p>
+    <div id="oneDriveSection"></div>
 
     <div class="members-section">
       <label>Har använt den gemensamma listan</label>
       <div id="membersList" class="members-list"></div>
-      <p>
-        Detta är ingen äkta behörighetskontroll – vem som helst med delningskoden kan se och
-        ändra listan. Det här är bara en förteckning över vilka namn som synkat hit hittills.
-      </p>
+      <p>Bygger på namnet var och en skrivit in här, inte på OneDrives delning ovan.</p>
     </div>
   </div>
 
@@ -493,8 +464,8 @@
   var LEGACY_STORE_KEY = 'shoppinglista-v1';
   var ACTIVE_LIST_KEY = 'shoppinglista-aktiv-lista-v1';
   var TEMPLATES_KEY = 'shoppinglista-mallar-v1';
-  var SYNC_KEY = 'shoppinglista-sync-v1';
   var USER_KEY = 'shoppinglista-anvandare-v1';
+  var ONEDRIVE_KEY = 'shoppinglista-onedrive-v1';
 
   function genId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -599,8 +570,6 @@
 
   function insertItemSorted(store, item) {
     var n = activeCount(store);
-    // Prefer grouping with the last active item of the same category,
-    // wherever within the active prefix it actually sits.
     var lastSameCat = -1;
     for (var i = 0; i < n; i++) {
       if (store.items[i].cat === item.cat) lastSameCat = i;
@@ -609,8 +578,6 @@
       store.items.splice(lastSameCat + 1, 0, item);
       return;
     }
-    // No active item of this category yet: place it relative to the
-    // store's learned category order (or the generic fallback order).
     var rank = categoryRank(store, item.cat);
     var insertAt = 0;
     for (var i = n - 1; i >= 0; i--) {
@@ -627,7 +594,7 @@
         name: 'KFC',
         catOrder: [],
         items: [
-          { id: genId(), t: 'Ta KFC', qty: null, cat: guessCategory('Ta KFC'), by: null, d: false }
+          { id: genId(), t: 'Ta KFC', qty: null, cat: guessCategory('Ta KFC'), by: null, d: false, updatedAt: 0 }
         ]
       },
       {
@@ -635,13 +602,13 @@
         name: 'ICA',
         catOrder: [],
         items: [
-          { id: genId(), t: 'Färdig korv stroganoff', qty: null, cat: guessCategory('Färdig korv stroganoff'), by: null, d: false },
-          { id: genId(), t: 'Alpro sojamjölk', qty: null, cat: guessCategory('Alpro sojamjölk'), by: null, d: false },
-          { id: genId(), t: '1 röd stor mjölk', qty: null, cat: guessCategory('1 röd stor mjölk'), by: null, d: false },
-          { id: genId(), t: 'Parmesan i påse', qty: null, cat: guessCategory('Parmesan i påse'), by: null, d: false },
-          { id: genId(), t: 'Vitlök', qty: null, cat: guessCategory('Vitlök'), by: null, d: false },
-          { id: genId(), t: 'Ägg med gulare äggula', qty: null, cat: guessCategory('Ägg med gulare äggula'), by: null, d: false },
-          { id: genId(), t: 'Sweet chili-sås från Pantai (kolla om de har)', qty: null, cat: guessCategory('Sweet chili-sås från Pantai'), by: null, d: false }
+          { id: genId(), t: 'Färdig korv stroganoff', qty: null, cat: guessCategory('Färdig korv stroganoff'), by: null, d: false, updatedAt: 0 },
+          { id: genId(), t: 'Alpro sojamjölk', qty: null, cat: guessCategory('Alpro sojamjölk'), by: null, d: false, updatedAt: 0 },
+          { id: genId(), t: '1 röd stor mjölk', qty: null, cat: guessCategory('1 röd stor mjölk'), by: null, d: false, updatedAt: 0 },
+          { id: genId(), t: 'Parmesan i påse', qty: null, cat: guessCategory('Parmesan i påse'), by: null, d: false, updatedAt: 0 },
+          { id: genId(), t: 'Vitlök', qty: null, cat: guessCategory('Vitlök'), by: null, d: false, updatedAt: 0 },
+          { id: genId(), t: 'Ägg med gulare äggula', qty: null, cat: guessCategory('Ägg med gulare äggula'), by: null, d: false, updatedAt: 0 },
+          { id: genId(), t: 'Sweet chili-sås från Pantai (kolla om de har)', qty: null, cat: guessCategory('Sweet chili-sås från Pantai'), by: null, d: false, updatedAt: 0 }
         ]
       }
     ];
@@ -661,6 +628,7 @@
         if (item.d === undefined) item.d = false;
         if (item.qty === undefined) item.qty = null;
         if (item.by === undefined) item.by = null;
+        if (item.updatedAt === undefined) item.updatedAt = 0;
         if (!item.cat) item.cat = guessCategory(item.t);
       });
       var actives = store.items.filter(function (i) { return !i.d; });
@@ -678,8 +646,6 @@
         if (parsed && parsed.shared && parsed.personal) return parsed;
       }
     } catch (e) {}
-    // First run on this device (or an update from before "Personlig"
-    // existed): carry over any pre-existing flat list as "Gemensam".
     var legacyStores = null;
     try {
       var rawOld = localStorage.getItem(LEGACY_STORE_KEY);
@@ -689,7 +655,7 @@
       }
     } catch (e) {}
     return {
-      shared: { stores: legacyStores || defaultSharedStores(), members: [] },
+      shared: { stores: legacyStores || defaultSharedStores(), members: [], deletedItemIds: [], deletedStoreIds: [], modifiedAt: Date.now() },
       personal: { stores: [] }
     };
   }
@@ -709,6 +675,9 @@
   migrateStores(lists.shared.stores);
   migrateStores(lists.personal.stores);
   if (!Array.isArray(lists.shared.members)) lists.shared.members = [];
+  if (!Array.isArray(lists.shared.deletedItemIds)) lists.shared.deletedItemIds = [];
+  if (!Array.isArray(lists.shared.deletedStoreIds)) lists.shared.deletedStoreIds = [];
+  if (!lists.shared.modifiedAt) lists.shared.modifiedAt = Date.now();
 
   var activeListKey = loadActiveListKey();
   var state = lists[activeListKey].stores;
@@ -737,9 +706,12 @@
 
   function save(skipSync) {
     lists[activeListKey].stores = state;
-    if (activeListKey === 'shared') touchSelfAsMember();
+    if (activeListKey === 'shared') {
+      touchSelfAsMember();
+      lists.shared.modifiedAt = Date.now();
+    }
     persistLists();
-    if (!skipSync && activeListKey === 'shared') pushRemote();
+    if (!skipSync && activeListKey === 'shared') scheduleSync();
   }
 
   function switchList(key) {
@@ -765,6 +737,11 @@
     return null;
   }
 
+  function tombstoneItem(itemId) {
+    if (activeListKey !== 'shared') return;
+    lists.shared.deletedItemIds.push({ id: itemId, deletedAt: Date.now() });
+  }
+
   function addStore(name) {
     name = name.trim();
     if (!name) return;
@@ -777,6 +754,11 @@
     var store = findStore(storeId);
     if (!store) return;
     if (!confirm('Ta bort affären "' + store.name + '" och alla dess varor?')) return;
+    if (activeListKey === 'shared') {
+      var now = Date.now();
+      lists.shared.deletedStoreIds.push({ name: store.name, deletedAt: now });
+      store.items.forEach(function (item) { lists.shared.deletedItemIds.push({ id: item.id, deletedAt: now }); });
+    }
     state = state.filter(function (s) { return s.id !== storeId; });
     save();
     render();
@@ -788,7 +770,7 @@
     var store = findStore(storeId);
     if (!store) return;
     var qty = (qtyRaw || '').trim();
-    var item = { id: genId(), t: text, qty: qty || null, cat: guessCategory(text), by: ensureUserName(), d: false };
+    var item = { id: genId(), t: text, qty: qty || null, cat: guessCategory(text), by: ensureUserName(), d: false, updatedAt: Date.now() };
     insertItemSorted(store, item);
     save();
     render();
@@ -808,6 +790,7 @@
     item.t = newText;
     item.qty = newQty.trim() || null;
     item.cat = guessCategory(newText);
+    item.updatedAt = Date.now();
     save();
     render();
   }
@@ -815,6 +798,10 @@
   function removeItem(storeId, itemId) {
     var store = findStore(storeId);
     if (!store) return;
+    var item = findItem(store, itemId);
+    if (!item) return;
+    if (!confirm('Ta bort "' + item.t + '"?')) return;
+    tombstoneItem(itemId);
     store.items = store.items.filter(function (i) { return i.id !== itemId; });
     save();
     render();
@@ -830,12 +817,11 @@
     if (idx === -1) return;
     var item = store.items[idx];
     store.items.splice(idx, 1);
+    item.updatedAt = Date.now();
     if (!item.d) {
-      // Checking off: park it at the end, under "Avbockade".
       item.d = true;
       store.items.push(item);
     } else {
-      // Unchecking: rejoin the active items, grouped by category again.
       item.d = false;
       insertItemSorted(store, item);
     }
@@ -853,6 +839,7 @@
     }
     if (idx === -1) return;
     var item = from.items.splice(idx, 1)[0];
+    item.updatedAt = Date.now();
     if (item.d) to.items.push(item);
     else insertItemSorted(to, item);
     learnCategoryOrder(from);
@@ -863,7 +850,7 @@
 
   function uncheckAll() {
     state.forEach(function (store) {
-      store.items.forEach(function (item) { item.d = false; });
+      store.items.forEach(function (item) { if (item.d) { item.d = false; item.updatedAt = Date.now(); } });
     });
     save();
     render();
@@ -876,7 +863,10 @@
     if (!anyChecked) return;
     if (!confirm('Ta bort alla avbockade varor i hela listan?')) return;
     state.forEach(function (store) {
-      store.items = store.items.filter(function (item) { return !item.d; });
+      store.items = store.items.filter(function (item) {
+        if (item.d) { tombstoneItem(item.id); return false; }
+        return true;
+      });
     });
     save();
     render();
@@ -933,7 +923,7 @@
       tplStore.items.forEach(function (tplItem) {
         var alreadyThere = store.items.some(function (it) { return it.t === tplItem.t && !it.d; });
         if (alreadyThere) return;
-        var item = { id: genId(), t: tplItem.t, qty: tplItem.qty || null, cat: tplItem.cat || guessCategory(tplItem.t), by: ensureUserName(), d: false };
+        var item = { id: genId(), t: tplItem.t, qty: tplItem.qty || null, cat: tplItem.cat || guessCategory(tplItem.t), by: ensureUserName(), d: false, updatedAt: Date.now() };
         insertItemSorted(store, item);
       });
       learnCategoryOrder(store);
@@ -954,130 +944,491 @@
     renderTemplates();
   }
 
-  /* ---- Realtime sync (optional, via a user-supplied Supabase project).
-     Only the "Gemensam" list ever syncs; "Personlig" is local-only. ---- */
-  var syncConfig = loadSyncConfig();
-  var supabaseClient = null;
-  var syncChannel = null;
+  /* =========================================================================
+     OneDrive sharing: a "Shoppinglista" folder in one person's OneDrive
+     holds delad-lista.json; the other person accesses it via a normal
+     OneDrive share invite. No backend - the app talks to Microsoft's login
+     and Graph API directly using OAuth 2.0 + PKCE (a public client flow
+     that needs no server-held secret), scoped to personal Microsoft
+     accounts only ("consumers"). Only the "Gemensam" list ever syncs;
+     "Personlig" is local-only. Ported from Ledger's OneDrive integration.
+     ========================================================================= */
+  var ONEDRIVE_AUTHORITY = 'https://login.microsoftonline.com/consumers';
+  var ONEDRIVE_SCOPES = 'Files.ReadWrite offline_access User.Read';
+  var GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
+  var TOMBSTONE_MAX_AGE_MS = 180 * 86400000;
+  var syncDebounceTimer = null;
 
-  function loadSyncConfig() {
+  var oneDrive = {
+    clientId: null, refreshToken: null, remoteRef: null, lastSyncedAt: null, lastEtag: null, accountLabel: null,
+    accessToken: null, accessTokenExpiry: 0, syncing: false, lastError: null
+  };
+
+  function loadOneDriveConfig() {
     try {
-      var raw = localStorage.getItem(SYNC_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function setSyncStatus(text) {
-    var elx = document.getElementById('syncStatus');
-    if (elx) elx.textContent = text;
-  }
-
-  function ensureSupabaseLib(cb) {
-    if (window.supabase) return cb();
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
-    s.onload = cb;
-    s.onerror = function () { setSyncStatus('Kunde inte ladda Supabase-biblioteket (kolla internetanslutningen).'); };
-    document.head.appendChild(s);
-  }
-
-  function connectSync(url, anonKey, code) {
-    if (!url || !anonKey || !code) {
-      setSyncStatus('Fyll i URL, anon key och en delningskod.');
-      return;
-    }
-    syncConfig = { url: url, anonKey: anonKey, code: code };
-    try { localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig)); } catch (e) {}
-    setSyncStatus('Ansluter…');
-    ensureSupabaseLib(function () {
-      try {
-        supabaseClient = window.supabase.createClient(url, anonKey);
-      } catch (e) {
-        setSyncStatus('Kunde inte skapa anslutning: ' + e.message);
-        return;
+      var raw = localStorage.getItem(ONEDRIVE_KEY);
+      var od = raw ? JSON.parse(raw) : null;
+      if (od) {
+        oneDrive.clientId = od.clientId || null;
+        oneDrive.refreshToken = od.refreshToken || null;
+        oneDrive.remoteRef = od.remoteRef || null;
+        oneDrive.lastSyncedAt = od.lastSyncedAt || null;
+        oneDrive.lastEtag = od.lastEtag || null;
+        oneDrive.accountLabel = od.accountLabel || null;
       }
-      pullRemote();
-      subscribeRemote();
+    } catch (e) {}
+  }
+
+  function saveOneDriveConfig() {
+    try {
+      localStorage.setItem(ONEDRIVE_KEY, JSON.stringify({
+        clientId: oneDrive.clientId, refreshToken: oneDrive.refreshToken, remoteRef: oneDrive.remoteRef,
+        lastSyncedAt: oneDrive.lastSyncedAt, lastEtag: oneDrive.lastEtag, accountLabel: oneDrive.accountLabel
+      }));
+    } catch (e) {}
+  }
+
+  function oneDriveRedirectUri() { return window.location.origin + window.location.pathname; }
+
+  function base64UrlEncode(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    for (var i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function randomString(len) {
+    var arr = new Uint8Array(len);
+    crypto.getRandomValues(arr);
+    return base64UrlEncode(arr.buffer).slice(0, len);
+  }
+
+  function pkceChallengeFromVerifier(verifier) {
+    var data = new TextEncoder().encode(verifier);
+    return crypto.subtle.digest('SHA-256', data).then(function (digest) { return base64UrlEncode(digest); });
+  }
+
+  function startOneDriveLogin() {
+    if (!oneDrive.clientId) return;
+    var verifier = randomString(64);
+    var loginState = randomString(24);
+    pkceChallengeFromVerifier(verifier).then(function (challenge) {
+      try {
+        sessionStorage.setItem('shoppinglista.onedrive.pkce', verifier);
+        sessionStorage.setItem('shoppinglista.onedrive.state', loginState);
+      } catch (e) {}
+      var params = new URLSearchParams({
+        client_id: oneDrive.clientId, response_type: 'code', redirect_uri: oneDriveRedirectUri(),
+        response_mode: 'query', scope: ONEDRIVE_SCOPES, code_challenge: challenge,
+        code_challenge_method: 'S256', state: loginState
+      });
+      window.location.assign(ONEDRIVE_AUTHORITY + '/oauth2/v2.0/authorize?' + params.toString());
     });
   }
 
-  function disconnectSync() {
-    if (syncChannel && supabaseClient) {
-      try { supabaseClient.removeChannel(syncChannel); } catch (e) {}
-    }
-    syncChannel = null;
-    supabaseClient = null;
-    syncConfig = null;
-    try { localStorage.removeItem(SYNC_KEY); } catch (e) {}
-    setSyncStatus('Ej ansluten.');
+  function applyTokenResponse(json) {
+    oneDrive.accessToken = json.access_token;
+    oneDrive.accessTokenExpiry = Date.now() + (json.expires_in ? json.expires_in * 1000 : 0) - 60000;
+    if (json.refresh_token) oneDrive.refreshToken = json.refresh_token;
   }
 
-  function applyRemotePayload(payload) {
-    if (!payload) return;
-    var stores = Array.isArray(payload.stores) ? payload.stores : (Array.isArray(payload) ? payload : null);
-    if (stores) {
-      lists.shared.stores = stores;
-      migrateStores(lists.shared.stores);
+  function handleOneDriveRedirect() {
+    var url = new URL(window.location.href);
+    var code = url.searchParams.get('code');
+    var returnedState = url.searchParams.get('state');
+    var authError = url.searchParams.get('error');
+    if (!code && !authError) return Promise.resolve(false);
+    url.searchParams.delete('code'); url.searchParams.delete('state');
+    url.searchParams.delete('session_state'); url.searchParams.delete('error'); url.searchParams.delete('error_description');
+    var qs = url.searchParams.toString();
+    window.history.replaceState({}, document.title, url.pathname + (qs ? '?' + qs : ''));
+    if (authError) { oneDrive.lastError = authError; return Promise.resolve(true); }
+    var expectedState = sessionStorage.getItem('shoppinglista.onedrive.state');
+    var verifier = sessionStorage.getItem('shoppinglista.onedrive.pkce');
+    try {
+      sessionStorage.removeItem('shoppinglista.onedrive.state');
+      sessionStorage.removeItem('shoppinglista.onedrive.pkce');
+    } catch (e) {}
+    if (!verifier || returnedState !== expectedState) { oneDrive.lastError = 'state_mismatch'; return Promise.resolve(true); }
+    var body = new URLSearchParams({
+      client_id: oneDrive.clientId, scope: ONEDRIVE_SCOPES, code: code,
+      redirect_uri: oneDriveRedirectUri(), grant_type: 'authorization_code', code_verifier: verifier
+    });
+    return fetch(ONEDRIVE_AUTHORITY + '/oauth2/v2.0/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
+    }).then(function (res) { return res.json().then(function (json) { return { res: res, json: json }; }); })
+      .then(function (r) {
+        if (!r.res.ok) { oneDrive.lastError = r.json.error || 'token_error'; return true; }
+        applyTokenResponse(r.json);
+        saveOneDriveConfig();
+        return fetchAccountLabel().then(function () {
+          saveOneDriveConfig();
+          return syncOneDrive();
+        }).then(function () { return true; });
+      })
+      .catch(function () { oneDrive.lastError = 'network'; return true; });
+  }
+
+  function getOneDriveAccessToken() {
+    if (oneDrive.accessToken && Date.now() < oneDrive.accessTokenExpiry) return Promise.resolve(oneDrive.accessToken);
+    if (!oneDrive.refreshToken || !oneDrive.clientId) return Promise.resolve(null);
+    var body = new URLSearchParams({
+      client_id: oneDrive.clientId, scope: ONEDRIVE_SCOPES, refresh_token: oneDrive.refreshToken, grant_type: 'refresh_token'
+    });
+    return fetch(ONEDRIVE_AUTHORITY + '/oauth2/v2.0/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
+    }).then(function (res) { return res.json().then(function (json) { return { res: res, json: json }; }); })
+      .then(function (r) {
+        if (!r.res.ok) {
+          oneDrive.lastError = r.json.error || 'refresh_error';
+          oneDrive.refreshToken = null;
+          saveOneDriveConfig();
+          return null;
+        }
+        applyTokenResponse(r.json);
+        saveOneDriveConfig();
+        return oneDrive.accessToken;
+      }).catch(function () { oneDrive.lastError = 'network'; return null; });
+  }
+
+  function graphFetch(path, token, options) {
+    options = options || {};
+    var headers = Object.assign({}, options.headers || {}, { Authorization: 'Bearer ' + token });
+    return fetch(GRAPH_BASE + path, Object.assign({}, options, { headers: headers }));
+  }
+
+  function fetchAccountLabel() {
+    return getOneDriveAccessToken().then(function (token) {
+      if (!token) return;
+      return graphFetch('/me', token).then(function (res) {
+        if (!res.ok) return;
+        return res.json().then(function (me) { oneDrive.accountLabel = me.mail || me.userPrincipalName || null; });
+      });
+    }).catch(function () {});
+  }
+
+  /* Finds (or creates) the shared "Shoppinglista" folder: first checks
+     your own OneDrive, then folders others have shared with you, and
+     only creates a new one if neither exists yet. */
+  function resolveListLocation(token) {
+    if (oneDrive.remoteRef) return Promise.resolve(oneDrive.remoteRef);
+    return graphFetch('/me/drive/root:/Shoppinglista', token).then(function (own) {
+      if (own.ok) return own.json().then(function (j) { return { driveId: j.parentReference.driveId, folderId: j.id, mode: 'own' }; });
+      return graphFetch('/me/drive/sharedWithMe', token).then(function (sharedRes) {
+        if (sharedRes.ok) {
+          return sharedRes.json().then(function (sharedJson) {
+            var match = (sharedJson.value || []).find(function (item) {
+              return item.remoteItem && item.remoteItem.name === 'Shoppinglista' && item.remoteItem.folder;
+            });
+            if (match) return { driveId: match.remoteItem.parentReference.driveId, folderId: match.remoteItem.id, mode: 'shared' };
+            return createListFolder(token);
+          });
+        }
+        return createListFolder(token);
+      });
+    });
+  }
+
+  function createListFolder(token) {
+    return graphFetch('/me/drive/root/children', token, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Shoppinglista', folder: {}, '@microsoft.graph.conflictBehavior': 'fail' })
+    }).then(function (createRes) {
+      if (!createRes.ok) throw new Error('resolve_failed');
+      return createRes.json().then(function (j) { return { driveId: j.parentReference.driveId, folderId: j.id, mode: 'own' }; });
+    });
+  }
+
+  function downloadListFile(token, ref) {
+    return graphFetch('/drives/' + ref.driveId + '/items/' + ref.folderId + ':/delad-lista.json:/content', token)
+      .then(function (res) {
+        if (res.status === 404) return { data: null, etag: null };
+        if (!res.ok) throw new Error('download_failed_' + res.status);
+        var etag = res.headers.get('ETag');
+        return res.json().then(function (json) { return { data: json, etag: etag }; });
+      });
+  }
+
+  function uploadListFile(token, ref, payload, ifMatchEtag) {
+    var headers = { 'Content-Type': 'application/json' };
+    if (ifMatchEtag) headers['if-match'] = ifMatchEtag;
+    return graphFetch('/drives/' + ref.driveId + '/items/' + ref.folderId + ':/delad-lista.json:/content', token, {
+      method: 'PUT', headers: headers, body: JSON.stringify(payload)
+    }).then(function (res) {
+      if (res.status === 412) return { conflict: true };
+      if (!res.ok) throw new Error('upload_failed_' + res.status);
+      return res.json().then(function (json) { return { conflict: false, etag: json.eTag || null }; });
+    });
+  }
+
+  function shareListWith(email) {
+    var statusEl = document.getElementById('oneDriveShareStatus');
+    if (statusEl) statusEl.textContent = 'Skickar inbjudan…';
+    getOneDriveAccessToken().then(function (token) {
+      if (!token || !oneDrive.remoteRef) throw new Error('not_ready');
+      return graphFetch('/drives/' + oneDrive.remoteRef.driveId + '/items/' + oneDrive.remoteRef.folderId + '/invite', token, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipients: [{ email: email }], message: 'Delar shoppinglistan med dig så vi ser samma lista.',
+          requireSignIn: true, sendInvitation: true, roles: ['write']
+        })
+      });
+    }).then(function (res) {
+      if (!res.ok) throw new Error('invite_failed_' + res.status);
+      if (statusEl) statusEl.textContent = 'Inbjudan skickad till ' + email + '.';
+      fetchListPermissions();
+    }).catch(function (e) {
+      if (statusEl) statusEl.textContent = 'Kunde inte skicka (' + (e && e.message) + ').';
+    });
+  }
+
+  /* Lists who the shared "Shoppinglista" folder has been invited to /
+     has access, via OneDrive's own sharing (only meaningful from the
+     owner's side - this is real access control, unlike the self-reported
+     "known members" roster below). */
+  function fetchListPermissions() {
+    var listEl = document.getElementById('oneDrivePermissionsList');
+    if (!listEl || !oneDrive.remoteRef || oneDrive.remoteRef.mode !== 'own') return;
+    listEl.textContent = 'Laddar…';
+    getOneDriveAccessToken().then(function (token) {
+      if (!token) throw new Error('no_token');
+      return graphFetch('/drives/' + oneDrive.remoteRef.driveId + '/items/' + oneDrive.remoteRef.folderId + '/permissions', token);
+    }).then(function (res) {
+      if (!res.ok) throw new Error('permissions_failed_' + res.status);
+      return res.json();
+    }).then(function (json) {
+      listEl.innerHTML = '';
+      var people = json.value || [];
+      if (!people.length) { listEl.appendChild(el('span', { class: 'mono', text: 'Bara du hittills.' })); return; }
+      people.forEach(function (p) {
+        var identity = (p.grantedToV2 && p.grantedToV2.user) || (p.grantedTo && p.grantedTo.user) || null;
+        var label = identity ? (identity.displayName || identity.email || identity.id)
+          : (p.invitation && p.invitation.email) || 'Väntande inbjudan';
+        var roles = (p.roles || []).join(', ');
+        listEl.appendChild(el('div', { text: roles ? label + ' (' + roles + ')' : label }));
+      });
+    }).catch(function (e) {
+      listEl.textContent = 'Kunde inte hämta (' + (e && e.message) + ')';
+    });
+  }
+
+  /* Merges the local shared-list payload with whatever is currently on
+     OneDrive. Items are matched by id (newest `updatedAt` wins their
+     fields); tombstones (deletedItemIds/deletedStoreIds) remove an item
+     or store unless it was edited again afterwards. Ordering within each
+     store follows whichever side was modified more recently, with any
+     items unique to the older side slotted in via the normal
+     category-based insertItemSorted, same as adding a brand-new item. */
+  function mergeSharedPayload(local, remote) {
+    if (!remote || !Array.isArray(remote.stores)) return local;
+    var baseIsLocal = (local.modifiedAt || 0) >= (remote.modifiedAt || 0);
+    var base = baseIsLocal ? local : remote;
+    var other = baseIsLocal ? remote : local;
+
+    var deletedItemMap = {};
+    (local.deletedItemIds || []).concat(remote.deletedItemIds || []).forEach(function (d) {
+      if (!deletedItemMap[d.id] || d.deletedAt > deletedItemMap[d.id]) deletedItemMap[d.id] = d.deletedAt;
+    });
+    var deletedStoreMap = {};
+    (local.deletedStoreIds || []).concat(remote.deletedStoreIds || []).forEach(function (d) {
+      if (!deletedStoreMap[d.name] || d.deletedAt > deletedStoreMap[d.name]) deletedStoreMap[d.name] = d.deletedAt;
+    });
+
+    var itemFields = {};
+    function indexItems(payload) {
+      payload.stores.forEach(function (s) {
+        s.items.forEach(function (it) {
+          var stamp = it.updatedAt || 0;
+          var ex = itemFields[it.id];
+          if (!ex || stamp > (ex.updatedAt || 0)) itemFields[it.id] = it;
+        });
+      });
     }
-    mergeMembers(payload.members);
-    touchSelfAsMember();
+    indexItems(local); indexItems(remote);
+    Object.keys(itemFields).forEach(function (id) {
+      var it = itemFields[id];
+      var delAt = deletedItemMap[id];
+      if (delAt && delAt >= (it.updatedAt || 0)) delete itemFields[id];
+    });
+
+    function storeTombstoned(name, items) {
+      var delAt = deletedStoreMap[name];
+      if (!delAt) return false;
+      var newestItem = items.reduce(function (max, it) { return Math.max(max, it.updatedAt || 0); }, 0);
+      return delAt >= newestItem;
+    }
+
+    var resultStores = [];
+    base.stores.forEach(function (s) {
+      var items = s.items.filter(function (it) { return itemFields[it.id]; }).map(function (it) { return itemFields[it.id]; });
+      if (storeTombstoned(s.name, items)) return;
+      resultStores.push({ id: s.id, name: s.name, catOrder: (s.catOrder || []).slice(), items: items });
+    });
+
+    var placed = {};
+    resultStores.forEach(function (s) { s.items.forEach(function (it) { placed[it.id] = true; }); });
+
+    other.stores.forEach(function (otherStore) {
+      var otherItems = otherStore.items.filter(function (it) { return itemFields[it.id]; }).map(function (it) { return itemFields[it.id]; });
+      if (storeTombstoned(otherStore.name, otherItems)) return;
+      var target = null;
+      for (var i = 0; i < resultStores.length; i++) {
+        if (resultStores[i].name === otherStore.name) { target = resultStores[i]; break; }
+      }
+      otherStore.items.forEach(function (otherItem) {
+        var latest = itemFields[otherItem.id];
+        if (!latest || placed[otherItem.id]) return;
+        if (!target) {
+          target = { id: otherStore.id, name: otherStore.name, catOrder: (otherStore.catOrder || []).slice(), items: [] };
+          resultStores.push(target);
+        }
+        if (latest.d) target.items.push(latest); else insertItemSorted(target, latest);
+        placed[otherItem.id] = true;
+      });
+    });
+
+    resultStores.forEach(learnCategoryOrder);
+
+    var mergedMembers = (local.members || []).slice();
+    (remote.members || []).forEach(function (rm) {
+      var found = null;
+      for (var i = 0; i < mergedMembers.length; i++) { if (mergedMembers[i].name === rm.name) { found = mergedMembers[i]; break; } }
+      if (!found) mergedMembers.push({ name: rm.name, lastSeen: rm.lastSeen || 0 });
+      else if ((rm.lastSeen || 0) > (found.lastSeen || 0)) found.lastSeen = rm.lastSeen;
+    });
+
+    var cutoff = Date.now() - TOMBSTONE_MAX_AGE_MS;
+    var mergedDeletedItems = Object.keys(deletedItemMap).filter(function (id) { return deletedItemMap[id] > cutoff; })
+      .map(function (id) { return { id: id, deletedAt: deletedItemMap[id] }; });
+    var mergedDeletedStores = Object.keys(deletedStoreMap).filter(function (name) { return deletedStoreMap[name] > cutoff; })
+      .map(function (name) { return { name: name, deletedAt: deletedStoreMap[name] }; });
+
+    return {
+      stores: resultStores, members: mergedMembers,
+      deletedItemIds: mergedDeletedItems, deletedStoreIds: mergedDeletedStores,
+      modifiedAt: Math.max(local.modifiedAt || 0, remote.modifiedAt || 0)
+    };
+  }
+
+  function applyMergedSharedPayload(merged) {
+    lists.shared.stores = merged.stores;
+    lists.shared.members = merged.members;
+    lists.shared.deletedItemIds = merged.deletedItemIds;
+    lists.shared.deletedStoreIds = merged.deletedStoreIds;
+    lists.shared.modifiedAt = merged.modifiedAt;
+    migrateStores(lists.shared.stores);
     if (activeListKey === 'shared') state = lists.shared.stores;
     persistLists();
     render();
   }
 
-  function pullRemote() {
-    if (!supabaseClient || !syncConfig) return;
-    supabaseClient.from('lists').select('data').eq('id', syncConfig.code).maybeSingle()
-      .then(function (res) {
-        if (res.error) {
-          setSyncStatus('Fel vid hämtning: ' + res.error.message);
-          return;
-        }
-        if (res.data && res.data.data) {
-          applyRemotePayload(res.data.data);
-          pushRemote();
-        } else {
-          touchSelfAsMember();
-          persistLists();
-          pushRemote();
-        }
-        setSyncStatus('Ansluten. Delningskod: ' + syncConfig.code);
-      })
-      .catch(function (e) { setSyncStatus('Fel vid hämtning: ' + e.message); });
+  function oneDriveStatusText() {
+    var lines = [oneDrive.accountLabel ? 'Inloggad som ' + oneDrive.accountLabel : 'Inloggad'];
+    lines.push(oneDrive.syncing ? 'Synkar…' : (oneDrive.lastSyncedAt ? 'Senast synkad ' + relTime(oneDrive.lastSyncedAt) : 'Inte synkad än'));
+    if (oneDrive.lastError) lines.push('Senaste fel: ' + oneDrive.lastError);
+    return lines.join(' · ');
   }
 
-  function pushRemote() {
-    if (!supabaseClient || !syncConfig) return;
-    supabaseClient.from('lists').upsert({
-      id: syncConfig.code,
-      data: { stores: lists.shared.stores, members: lists.shared.members },
-      updated_at: new Date().toISOString()
-    })
-      .then(function (res) { if (res.error) setSyncStatus('Fel vid synk: ' + res.error.message); })
-      .catch(function (e) { setSyncStatus('Fel vid synk: ' + e.message); });
+  function scheduleSync() {
+    if (!oneDrive.clientId || !oneDrive.refreshToken) return;
+    clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = setTimeout(function () { syncOneDrive(); }, 1500);
   }
 
-  function subscribeRemote() {
-    if (!supabaseClient || !syncConfig) return;
-    syncChannel = supabaseClient.channel('list-' + syncConfig.code)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'lists', filter: 'id=eq.' + syncConfig.code }, function (payload) {
-        if (!payload.new || !payload.new.data) return;
-        applyRemotePayload(payload.new.data);
-      })
-      .subscribe();
+  function syncOneDrive() {
+    if (!oneDrive.clientId || !oneDrive.refreshToken || oneDrive.syncing) return Promise.resolve();
+    oneDrive.syncing = true;
+    refreshOneDriveSection();
+    var token;
+    return getOneDriveAccessToken().then(function (t) {
+      token = t;
+      if (!token) throw new Error('no_token');
+      return oneDrive.remoteRef ? oneDrive.remoteRef : resolveListLocation(token);
+    }).then(function (ref) {
+      oneDrive.remoteRef = ref;
+      return attemptSync(token, ref, 0);
+    }).then(function () {
+      oneDrive.lastSyncedAt = Date.now();
+      oneDrive.lastError = null;
+      saveOneDriveConfig();
+      render();
+    }).catch(function (e) {
+      oneDrive.lastError = (e && e.message) || 'sync_failed';
+    }).finally(function () {
+      oneDrive.syncing = false;
+      refreshOneDriveSection();
+    });
   }
 
-  if (syncConfig) {
-    document.addEventListener('DOMContentLoaded', function () {
-      ensureSupabaseLib(function () {
-        supabaseClient = window.supabase.createClient(syncConfig.url, syncConfig.anonKey);
-        pullRemote();
-        subscribeRemote();
+  function attemptSync(token, ref, attempt) {
+    if (attempt >= 3) return Promise.resolve();
+    var localPayload = {
+      stores: lists.shared.stores, members: lists.shared.members,
+      deletedItemIds: lists.shared.deletedItemIds, deletedStoreIds: lists.shared.deletedStoreIds,
+      modifiedAt: lists.shared.modifiedAt
+    };
+    return downloadListFile(token, ref).then(function (remote) {
+      var merged = remote.data ? mergeSharedPayload(localPayload, remote.data) : localPayload;
+      applyMergedSharedPayload(merged);
+      return uploadListFile(token, ref, merged, remote.etag).then(function (result) {
+        if (result.conflict) return attemptSync(token, ref, attempt + 1);
+        oneDrive.lastEtag = result.etag;
       });
     });
+  }
+
+  function refreshOneDriveSection() {
+    var container = document.getElementById('oneDriveSection');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!oneDrive.clientId) {
+      var idInput = el('input', { type: 'text', id: 'oneDriveClientIdInput', placeholder: 'Microsoft app Client ID', autocomplete: 'off' });
+      container.appendChild(el('label', { text: 'Microsoft app Client ID' }));
+      container.appendChild(idInput);
+      container.appendChild(el('p', { text: 'Engångsinställning – kräver en gratis Microsoft-appregistrering (samma sorts som Ledger använder). Registrera redirect-URI:n ' + oneDriveRedirectUri() + ' i den appen.' }));
+      var saveIdBtn = el('button', { type: 'button', class: 'btn-secondary', style: 'width:100%;', text: 'Spara Client ID' });
+      saveIdBtn.addEventListener('click', function () {
+        var val = idInput.value.trim();
+        if (!val) return;
+        oneDrive.clientId = val;
+        saveOneDriveConfig();
+        refreshOneDriveSection();
+      });
+      var actions = el('div', { class: 'sync-actions' }, [saveIdBtn]);
+      container.appendChild(actions);
+    } else if (!oneDrive.refreshToken) {
+      var connectBtn = el('button', { type: 'button', class: 'btn-primary', style: 'width:100%;', text: 'Logga in med Microsoft' });
+      connectBtn.addEventListener('click', function () { startOneDriveLogin(); });
+      container.appendChild(el('div', { class: 'sync-actions' }, [connectBtn]));
+    } else {
+      container.appendChild(el('div', { class: 'sync-status mono', id: 'oneDriveStatus', text: oneDriveStatusText() }));
+      var syncBtn = el('button', { type: 'button', class: 'btn-secondary', text: 'Synka nu' });
+      syncBtn.addEventListener('click', function () { syncOneDrive(); });
+      var disconnectBtn = el('button', { type: 'button', class: 'btn-danger', text: 'Logga ut' });
+      disconnectBtn.addEventListener('click', function () {
+        oneDrive.refreshToken = null; oneDrive.accessToken = null; oneDrive.remoteRef = null;
+        oneDrive.accountLabel = null; oneDrive.lastSyncedAt = null; oneDrive.lastEtag = null;
+        saveOneDriveConfig();
+        refreshOneDriveSection();
+      });
+      container.appendChild(el('div', { class: 'sync-actions' }, [syncBtn, disconnectBtn]));
+
+      if (oneDrive.remoteRef && oneDrive.remoteRef.mode === 'own') {
+        container.appendChild(el('label', { text: 'Har tillgång (från OneDrive-delningen)' }));
+        container.appendChild(el('div', { id: 'oneDrivePermissionsList', class: 'mono', text: 'Laddar…' }));
+        var emailInput = el('input', { type: 'email', id: 'oneDriveShareEmail', placeholder: 'namn@example.com', autocomplete: 'off' });
+        container.appendChild(el('label', { text: 'Dela den här listan med' }));
+        container.appendChild(emailInput);
+        var shareBtn = el('button', { type: 'button', class: 'btn-secondary', style: 'width:100%;margin-top:8px;', text: 'Skicka inbjudan' });
+        shareBtn.addEventListener('click', function () {
+          var email = emailInput.value.trim();
+          if (email) shareListWith(email);
+        });
+        container.appendChild(shareBtn);
+        container.appendChild(el('div', { id: 'oneDriveShareStatus', class: 'sync-status' }));
+        fetchListPermissions();
+      }
+    }
   }
 
   /* ---- Small bottom-sheet picker, used for "move item to another store" ---- */
@@ -1129,10 +1480,6 @@
 
     function onMove(ev) {
       if (ev.pointerId !== pid) return;
-      // Move the SIBLING past the dragged item, rather than the dragged
-      // item itself: reparenting `li` mid-drag makes Chromium drop pointer
-      // capture (set on a child of li), which would silently end the drag
-      // after a single step. `li` stays put in the DOM the whole time.
       var items = Array.prototype.slice.call(listEl.children).filter(function (n) { return n.classList.contains('item') && !n.classList.contains('checked-item') && n !== li; });
       var y = ev.clientY;
       for (var i = 0; i < items.length; i++) {
@@ -1371,36 +1718,9 @@
 
   document.getElementById('settingsToggleBtn').addEventListener('click', function () {
     document.getElementById('settingsPanel').classList.toggle('open');
+    refreshOneDriveSection();
     renderMembers();
   });
-
-  document.getElementById('syncGenCodeBtn').addEventListener('click', function () {
-    var code = 'lista-' + Math.random().toString(36).slice(2, 8);
-    document.getElementById('syncCodeInput').value = code;
-  });
-
-  document.getElementById('syncCopyCodeBtn').addEventListener('click', function () {
-    var code = document.getElementById('syncCodeInput').value;
-    if (!code) return;
-    if (navigator.clipboard) navigator.clipboard.writeText(code).catch(function () {});
-  });
-
-  document.getElementById('syncConnectBtn').addEventListener('click', function () {
-    connectSync(
-      document.getElementById('syncUrlInput').value.trim(),
-      document.getElementById('syncKeyInput').value.trim(),
-      document.getElementById('syncCodeInput').value.trim()
-    );
-  });
-
-  document.getElementById('syncDisconnectBtn').addEventListener('click', disconnectSync);
-
-  if (syncConfig) {
-    document.getElementById('syncUrlInput').value = syncConfig.url;
-    document.getElementById('syncKeyInput').value = syncConfig.anonKey;
-    document.getElementById('syncCodeInput').value = syncConfig.code;
-    setSyncStatus('Ansluter…');
-  }
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
@@ -1408,8 +1728,16 @@
     });
   }
 
+  loadOneDriveConfig();
   renderTabs();
   render();
+
+  handleOneDriveRedirect().then(function (handledRedirect) {
+    if (!handledRedirect && oneDrive.refreshToken) syncOneDrive();
+  });
+  setInterval(function () {
+    if (document.visibilityState === 'visible' && oneDrive.refreshToken) syncOneDrive();
+  }, 120000);
 </script>
 </body>
 </html>
