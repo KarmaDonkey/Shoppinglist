@@ -352,11 +352,27 @@
   #addStoreForm .item-text-input { flex: 1 1 auto; }
   #addStoreForm button[type="submit"] { flex: 0 0 auto; }
 
+  /* The global add-item form also picks a store, so it gets a row each
+     for the text and the store, with quantity + submit sharing the last. */
+  #globalAddForm select { flex: 1 1 100%; }
+
+  .section-heading-row { display: flex; align-items: center; justify-content: space-between; }
+  .manage-stores-link {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    background: transparent;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 5px 9px;
+    cursor: pointer;
+  }
+
   .paste-box { background: var(--surface); border-radius: 14px; box-shadow: 0 1px 3px var(--shadow); padding: 14px; }
   .paste-box textarea { width: 100%; resize: vertical; font-family: inherit; }
   .paste-row { display: flex; gap: 8px; margin-top: 8px; }
-  .paste-row select { flex: 1; min-width: 0; }
-  .paste-row button { flex: 0 0 auto; }
+  .paste-row button { flex: 1; }
 
   .empty-hint {
     padding: 14px;
@@ -501,9 +517,20 @@
     </div>
   </div>
 
+  <div class="section-heading">Lägg till vara</div>
+  <form class="add-form" id="globalAddForm">
+    <input type="text" id="globalAddText" class="item-text-input" placeholder="Lägg till vara…" autocomplete="off">
+    <select id="globalAddStoreSelect"></select>
+    <input type="text" id="globalAddQty" class="qty-input" placeholder="Antal" autocomplete="off">
+    <button type="submit">Lägg till</button>
+  </form>
+
   <div id="stores"></div>
 
-  <div class="section-heading">Ny affär</div>
+  <div class="section-heading section-heading-row">
+    <span>Ny affär</span>
+    <button type="button" id="manageStoresBtn" class="manage-stores-link">Hantera affärer</button>
+  </div>
   <form class="add-form" id="addStoreForm">
     <input type="text" id="addStoreInput" class="item-text-input" placeholder="Namn på affär, t.ex. ICA Nacka Forum…" autocomplete="off">
     <button type="submit">Skapa</button>
@@ -511,9 +538,8 @@
 
   <div class="section-heading">Klistra in lista</div>
   <div class="paste-box">
-    <textarea id="pasteTextarea" rows="4" placeholder="Klistra in text, en vara per rad… (t.ex. från en AI-chatt i ett annat fönster)"></textarea>
+    <textarea id="pasteTextarea" rows="5" placeholder="Klistra in text. Skriv en affärs namn på egen rad för att gruppera varorna under den (måste matcha en affär du redan skapat) — allt annat hamnar under &quot;Osorterat&quot;."></textarea>
     <div class="paste-row">
-      <select id="pasteStoreSelect"></select>
       <button type="button" id="pasteAddBtn">Lägg till</button>
     </div>
   </div>
@@ -1037,20 +1063,50 @@
     render();
   }
 
-  /* ---- Paste a free-text list (e.g. written by an AI elsewhere), one
-     item per line, into a chosen store. No AI call from inside the app -
-     just splits lines and strips common bullet prefixes. ---- */
+  function findStoreByName(name) {
+    var lower = name.toLowerCase();
+    for (var i = 0; i < state.length; i++) {
+      if (state[i].name.toLowerCase() === lower) return state[i];
+    }
+    return null;
+  }
+
+  function getOrCreateStoreByName(name) {
+    var store = findStoreByName(name);
+    if (store) return store;
+    store = { id: genId(), name: name, items: [], catOrder: [] };
+    state.push(store);
+    return store;
+  }
+
+  /* ---- Paste a free-text list (e.g. written by an AI elsewhere) and
+     split it into items. A line that matches one of your existing store
+     names (with or without a trailing colon) is treated as a header:
+     everything under it goes into that store, until the next matching
+     header. Anything before the first recognized header - or the whole
+     paste, if no store name is found at all - lands in a store called
+     "Osorterat" instead of being silently dropped. ---- */
   function addPastedLines() {
-    var select = document.getElementById('pasteStoreSelect');
     var textarea = document.getElementById('pasteTextarea');
-    var storeId = select.value;
-    if (!storeId) return;
-    var lines = textarea.value.split('\n').map(function (l) {
-      return l.replace(/^[\s]*[-*•]+\s*/, '').replace(/^[\s]*\d+[.)]\s*/, '').trim();
-    }).filter(function (l) { return l.length > 0; });
-    if (lines.length === 0) return;
-    lines.forEach(function (line) { addItem(storeId, line, null); });
+    var rawLines = textarea.value.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l.length > 0; });
+    if (rawLines.length === 0) return;
+    var currentStoreName = null;
+    var anyAdded = false;
+    rawLines.forEach(function (line) {
+      var headerCandidate = line.replace(/:$/, '').trim();
+      if (findStoreByName(headerCandidate)) {
+        currentStoreName = headerCandidate;
+        return;
+      }
+      var cleaned = line.replace(/^[\s]*[-*•]+\s*/, '').replace(/^[\s]*\d+[.)]\s*/, '').trim();
+      if (!cleaned) return;
+      var store = getOrCreateStoreByName(currentStoreName || 'Osorterat');
+      var item = { id: genId(), t: cleaned, qty: null, cat: guessCategory(cleaned), by: ensureUserName(), d: false };
+      insertItemSorted(store, item);
+      anyAdded = true;
+    });
     textarea.value = '';
+    if (anyAdded) { save(); render(); }
   }
 
   /* =========================================================================
@@ -1462,15 +1518,22 @@
   function render() {
     var container = document.getElementById('stores');
     container.innerHTML = '';
-    if (state.length === 0) {
-      container.appendChild(el('div', { class: 'empty-state', text: 'Inga affärer än. Skapa en nedan.' }));
+    // A store you've created but haven't added anything to yet stays out
+    // of the way - it exists only as an option in the store pickers,
+    // until it has at least one item to show.
+    var visibleStores = state.filter(function (s) { return s.items.length > 0; });
+    if (visibleStores.length === 0) {
+      var msg = state.length === 0
+        ? 'Inga affärer än. Skapa en nedan, eller lägg till en vara ovan för att komma igång.'
+        : 'Inga varor tillagda ännu.';
+      container.appendChild(el('div', { class: 'empty-state', text: msg }));
     } else {
-      state.forEach(function (store) {
+      visibleStores.forEach(function (store) {
         container.appendChild(renderStore(store));
       });
     }
     renderTripBar();
-    renderPasteStoreOptions();
+    renderGlobalAddStoreOptions();
     renderMembers();
   }
 
@@ -1486,8 +1549,8 @@
     bar.appendChild(el('div', { class: 'trip-bar-actions' }, [newTripBtn, archiveBtn]));
   }
 
-  function renderPasteStoreOptions() {
-    var select = document.getElementById('pasteStoreSelect');
+  function renderGlobalAddStoreOptions() {
+    var select = document.getElementById('globalAddStoreSelect');
     var prev = select.value;
     select.innerHTML = '';
     if (state.length === 0) {
@@ -1501,6 +1564,30 @@
       select.appendChild(opt);
     });
     if (prev && state.some(function (s) { return s.id === prev; })) select.value = prev;
+  }
+
+  function showManageStoresModal() {
+    var box = el('div', { class: 'modal-box' });
+    box.appendChild(el('h3', { text: 'Hantera affärer' }));
+    if (state.length === 0) {
+      box.appendChild(el('p', { class: 'empty-hint', text: 'Inga affärer skapade än.' }));
+    } else {
+      state.forEach(function (s) {
+        var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort', text: '✕' });
+        deleteBtn.addEventListener('click', function () { removeStore(s.id); showManageStoresModal(); });
+        box.appendChild(el('div', { class: 'archive-row' }, [
+          el('div', { class: 'name' }, [
+            document.createTextNode(s.name),
+            el('span', { class: 'count mono', text: ' (' + s.items.length + ' varor)' })
+          ]),
+          el('div', { class: 'archive-actions' }, [deleteBtn])
+        ]));
+      });
+    }
+    var cancel = el('button', { type: 'button', class: 'modal-cancel', text: 'Stäng' });
+    cancel.addEventListener('click', closeModal);
+    box.appendChild(cancel);
+    openModal(box);
   }
 
   function renderTabs() {
@@ -1542,6 +1629,18 @@
   document.getElementById('uncheckAllBtn').addEventListener('click', uncheckAll);
   document.getElementById('clearCheckedBtn').addEventListener('click', clearChecked);
   document.getElementById('pasteAddBtn').addEventListener('click', addPastedLines);
+  document.getElementById('manageStoresBtn').addEventListener('click', showManageStoresModal);
+
+  document.getElementById('globalAddForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var storeId = document.getElementById('globalAddStoreSelect').value;
+    if (!storeId) return;
+    var textInput = document.getElementById('globalAddText');
+    var qtyInput = document.getElementById('globalAddQty');
+    addItem(storeId, textInput.value, qtyInput.value);
+    textInput.value = '';
+    qtyInput.value = '';
+  });
 
   var tabButtons = document.querySelectorAll('.list-tab');
   for (var ti = 0; ti < tabButtons.length; ti++) {
