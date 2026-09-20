@@ -531,24 +531,7 @@
     </div>
   </div>
 
-  <div class="section-heading">Lägg till vara</div>
-  <form class="add-form" id="globalAddForm">
-    <input type="text" id="globalAddText" class="item-text-input" placeholder="Lägg till vara…" autocomplete="off">
-    <select id="globalAddStoreSelect"></select>
-    <input type="text" id="globalAddQty" class="qty-input" placeholder="Antal" autocomplete="off">
-    <button type="submit">Lägg till</button>
-  </form>
-
   <div id="stores"></div>
-
-  <div class="section-heading section-heading-row">
-    <span>Ny affär</span>
-    <button type="button" id="manageStoresBtn" class="manage-stores-link">Hantera affärer</button>
-  </div>
-  <form class="add-form" id="addStoreForm">
-    <input type="text" id="addStoreInput" class="item-text-input" placeholder="Namn på affär, t.ex. ICA Nacka Forum…" autocomplete="off">
-    <button type="submit">Skapa</button>
-  </form>
 
   <div class="section-heading">Klistra in lista</div>
   <div class="paste-box">
@@ -559,7 +542,24 @@
     </div>
   </div>
 
-  <div class="app-version mono">Shoppinglista v1.2</div>
+  <div class="section-heading section-heading-row">
+    <span>Ny affär</span>
+    <button type="button" id="manageStoresBtn" class="manage-stores-link">Hantera affärer</button>
+  </div>
+  <form class="add-form" id="addStoreForm">
+    <input type="text" id="addStoreInput" class="item-text-input" placeholder="Namn på affär, t.ex. ICA Nacka Forum…" autocomplete="off">
+    <button type="submit">Skapa</button>
+  </form>
+
+  <div class="section-heading">Lägg till vara</div>
+  <form class="add-form" id="globalAddForm">
+    <input type="text" id="globalAddText" class="item-text-input" placeholder="Lägg till vara…" autocomplete="off">
+    <select id="globalAddStoreSelect"></select>
+    <input type="text" id="globalAddQty" class="qty-input" placeholder="Antal" autocomplete="off">
+    <button type="submit">Lägg till</button>
+  </form>
+
+  <div class="app-version mono">Shoppinglista v1.3</div>
 </div>
 
 <script>
@@ -1527,22 +1527,7 @@
       }
     }
 
-    var textInput = el('input', { type: 'text', class: 'item-text-input', placeholder: 'Lägg till vara…', autocomplete: 'off' });
-    var qtyInput = el('input', { type: 'text', class: 'qty-input', placeholder: 'Antal', autocomplete: 'off' });
-    var form = el('form', { class: 'add-form' }, [
-      textInput,
-      qtyInput,
-      el('button', { type: 'submit', text: 'Lägg till' })
-    ]);
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      addItem(store.id, textInput.value, qtyInput.value);
-      textInput.value = '';
-      qtyInput.value = '';
-      textInput.focus();
-    });
-
-    return el('div', { class: 'store' }, [header, list, form]);
+    return el('div', { class: 'store' }, [header, list]);
   }
 
   function render() {
