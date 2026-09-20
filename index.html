@@ -559,7 +559,7 @@
     </div>
   </div>
 
-  <div class="app-version mono">Shoppinglista v1.1</div>
+  <div class="app-version mono">Shoppinglista v1.2</div>
 </div>
 
 <script>
@@ -951,8 +951,21 @@
   function removeStore(storeId) {
     var store = findStore(storeId);
     if (!store) return;
-    if (!confirm('Ta bort affären "' + store.name + '" och alla dess varor?')) return;
+    if (!confirm('Ta bort affären "' + store.name + '" permanent, inklusive dess inlärda sorteringsordning?')) return;
     state = state.filter(function (s) { return s.id !== storeId; });
+    save();
+    render();
+  }
+
+  /* The card's own ✕ only clears its items (it then disappears from view,
+     like any other empty store) - it keeps the store name and its learned
+     sort order around in the catalog. Permanently forgetting a store
+     entirely is only available from "Hantera affärer". */
+  function clearStoreItems(storeId) {
+    var store = findStore(storeId);
+    if (!store || store.items.length === 0) return;
+    if (!confirm('Rensa alla varor i "' + store.name + '"? Affären finns kvar och kan användas igen.')) return;
+    store.items = [];
     save();
     render();
   }
@@ -1480,8 +1493,8 @@
   }
 
   function renderStore(store) {
-    var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort affär', text: '✕' });
-    deleteBtn.addEventListener('click', function () { removeStore(store.id); });
+    var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Rensa affär', text: '✕' });
+    deleteBtn.addEventListener('click', function () { clearStoreItems(store.id); });
 
     var header = el('div', { class: 'store-header' }, [
       el('h2', {}, [
@@ -1674,9 +1687,10 @@
       var btn = el('button', { type: 'button', class: 'paste-suggestion', text: s.name });
       btn.addEventListener('click', function () {
         var text = textarea.value;
-        var newText = text.slice(0, ctx.atIndex) + s.name + text.slice(ctx.atIndex + 1 + ctx.query.length);
+        var insertion = s.name + '\n';
+        var newText = text.slice(0, ctx.atIndex) + insertion + text.slice(ctx.atIndex + 1 + ctx.query.length);
         textarea.value = newText;
-        var newPos = ctx.atIndex + s.name.length;
+        var newPos = ctx.atIndex + insertion.length;
         textarea.focus();
         textarea.setSelectionRange(newPos, newPos);
         container.innerHTML = '';
