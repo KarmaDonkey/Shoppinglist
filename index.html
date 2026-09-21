@@ -415,6 +415,7 @@
     font-size: 13px;
     cursor: pointer;
   }
+  .paste-suggestion-create { border-color: var(--accent); color: var(--accent); }
 
   .app-version { text-align: center; font-size: 11px; color: var(--ink-faint); margin-top: 32px; }
 
@@ -630,7 +631,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.12</div>
+  <div class="app-version mono">Shoppinglista v1.13</div>
 </div>
 
 <script>
@@ -1831,6 +1832,18 @@
     return { atIndex: atIndex, query: query };
   }
 
+  function insertPasteSuggestion(textarea, container, ctx, name) {
+    var text = textarea.value;
+    var insertion = name + '\n';
+    var newText = text.slice(0, ctx.atIndex) + insertion + text.slice(ctx.atIndex + 1 + ctx.query.length);
+    textarea.value = newText;
+    var newPos = ctx.atIndex + insertion.length;
+    textarea.focus();
+    textarea.setSelectionRange(newPos, newPos);
+    container.innerHTML = '';
+    container.classList.remove('open');
+  }
+
   function renderPasteSuggestions() {
     var textarea = document.getElementById('pasteTextarea');
     var container = document.getElementById('pasteSuggestions');
@@ -1839,19 +1852,24 @@
     if (!ctx) { container.classList.remove('open'); return; }
     var q = ctx.query.toLowerCase();
     var matches = state.filter(function (s) { return s.name.toLowerCase().indexOf(q) !== -1; });
-    if (matches.length === 0) { container.classList.remove('open'); return; }
+    if (matches.length === 0) {
+      var newName = ctx.query.trim();
+      if (!newName) { container.classList.remove('open'); return; }
+      var createBtn = el('button', { type: 'button', class: 'paste-suggestion paste-suggestion-create', text: '+ Skapa "' + newName + '"' });
+      createBtn.addEventListener('click', function () {
+        var store = getOrCreateStoreByName(newName);
+        save();
+        render();
+        insertPasteSuggestion(textarea, container, ctx, store.name);
+      });
+      container.appendChild(createBtn);
+      container.classList.add('open');
+      return;
+    }
     matches.forEach(function (s) {
       var btn = el('button', { type: 'button', class: 'paste-suggestion', text: s.name });
       btn.addEventListener('click', function () {
-        var text = textarea.value;
-        var insertion = s.name + '\n';
-        var newText = text.slice(0, ctx.atIndex) + insertion + text.slice(ctx.atIndex + 1 + ctx.query.length);
-        textarea.value = newText;
-        var newPos = ctx.atIndex + insertion.length;
-        textarea.focus();
-        textarea.setSelectionRange(newPos, newPos);
-        container.innerHTML = '';
-        container.classList.remove('open');
+        insertPasteSuggestion(textarea, container, ctx, s.name);
       });
       container.appendChild(btn);
     });
