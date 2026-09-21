@@ -216,6 +216,7 @@
     padding: 14px 14px 10px;
     border-bottom: 1px solid var(--hairline);
   }
+  .store-actions { display: flex; align-items: center; }
   .store-header h2 {
     font-family: 'Source Serif 4', serif;
     font-size: 18px;
@@ -566,7 +567,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.6</div>
+  <div class="app-version mono">Shoppinglista v1.7</div>
 </div>
 
 <script>
@@ -1499,16 +1500,47 @@
     return li;
   }
 
-  function renderStore(store) {
+  /* Reorders visible store cards by swapping their actual positions in
+     `state` - hidden (empty) stores keep whatever position they already
+     have, since they're not part of the visible ordering at all. */
+  function moveStoreUpDown(storeId, dir) {
+    var visible = state.filter(function (s) { return s.items.length > 0; });
+    var vIdx = -1;
+    for (var i = 0; i < visible.length; i++) { if (visible[i].id === storeId) { vIdx = i; break; } }
+    if (vIdx === -1) return;
+    var targetVIdx = vIdx + dir;
+    if (targetVIdx < 0 || targetVIdx >= visible.length) return;
+    var otherId = visible[targetVIdx].id;
+    var idxA = -1, idxB = -1;
+    for (var i = 0; i < state.length; i++) {
+      if (state[i].id === storeId) idxA = i;
+      if (state[i].id === otherId) idxB = i;
+    }
+    var tmp = state[idxA];
+    state[idxA] = state[idxB];
+    state[idxB] = tmp;
+    save();
+    render();
+  }
+
+  function renderStore(store, isFirst, isLast) {
     var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Rensa affär', text: '✕' });
     deleteBtn.addEventListener('click', function () { clearStoreItems(store.id); });
+
+    var upBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Flytta kortet upp', text: '↑' });
+    if (isFirst) upBtn.disabled = true;
+    upBtn.addEventListener('click', function () { moveStoreUpDown(store.id, -1); });
+
+    var downBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Flytta kortet ner', text: '↓' });
+    if (isLast) downBtn.disabled = true;
+    downBtn.addEventListener('click', function () { moveStoreUpDown(store.id, 1); });
 
     var header = el('div', { class: 'store-header' }, [
       el('h2', {}, [
         document.createTextNode(store.name),
         el('span', { class: 'store-count mono', text: '(' + store.items.length + ')' })
       ]),
-      deleteBtn
+      el('div', { class: 'store-actions' }, [upBtn, downBtn, deleteBtn])
     ]);
 
     var actives = store.items.filter(function (i) { return !i.d; });
@@ -1550,8 +1582,8 @@
         : 'Inga varor tillagda ännu.';
       container.appendChild(el('div', { class: 'empty-state', text: msg }));
     } else {
-      visibleStores.forEach(function (store) {
-        container.appendChild(renderStore(store));
+      visibleStores.forEach(function (store, i) {
+        container.appendChild(renderStore(store, i === 0, i === visibleStores.length - 1));
       });
     }
     renderTripBar();
@@ -1594,7 +1626,8 @@
     if (state.length === 0) {
       box.appendChild(el('p', { class: 'empty-hint', text: 'Inga affärer skapade än.' }));
     } else {
-      state.forEach(function (s) {
+      var sorted = state.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'sv'); });
+      sorted.forEach(function (s) {
         var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort', text: '✕' });
         deleteBtn.addEventListener('click', function () { removeStore(s.id); showManageStoresModal(); });
         box.appendChild(el('div', { class: 'archive-row' }, [
