@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Shoppinglista</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#96721C">
+<meta name="theme-color" content="#B5677C">
 <link rel="icon" href="icons/icon-32.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,30 +13,30 @@
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #EDE8DC;
-    --surface: #E4DDCB;
-    --surface-2: #DCD4BF;
-    --ink: #2A2620;
-    --ink-soft: #6B6250;
-    --ink-faint: #8E846E;
-    --accent: #96721C;
-    --good: #4B6B45;
-    --over: #8C3B32;
-    --hairline: rgba(42, 38, 32, 0.14);
-    --shadow: rgba(42, 38, 32, 0.16);
+    --bg: #F7E9EC;
+    --surface: #F1DBE0;
+    --surface-2: #E8CAD1;
+    --ink: #3D2229;
+    --ink-soft: #7A4E58;
+    --ink-faint: #9C7681;
+    --accent: #B5677C;
+    --good: #5E7A54;
+    --over: #A44A4A;
+    --hairline: rgba(61, 34, 41, 0.14);
+    --shadow: rgba(61, 34, 41, 0.16);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #1B1917;
-      --surface: #242220;
-      --surface-2: #2C2A26;
-      --ink: #EDE6D8;
-      --ink-soft: #A69C89;
-      --ink-faint: #7A7263;
-      --accent: #C9A227;
-      --good: #7FA36E;
-      --over: #C06256;
-      --hairline: rgba(237, 230, 216, 0.12);
+      --bg: #241419;
+      --surface: #2E1C22;
+      --surface-2: #3A252C;
+      --ink: #F3E1E5;
+      --ink-soft: #C7A2AC;
+      --ink-faint: #93707A;
+      --accent: #E8A0B4;
+      --good: #8FB37E;
+      --over: #D97A7A;
+      --hairline: rgba(243, 225, 229, 0.12);
       --shadow: rgba(0, 0, 0, 0.4);
     }
   }
@@ -496,7 +496,14 @@
   </div>
 
   <div class="settings-panel" id="settingsPanel">
-    <h2>Dela den gemensamma listan</h2>
+    <h2>Ditt namn</h2>
+    <p>Visas på varor du lägger till på den gemensamma listan.</p>
+    <div class="code-row">
+      <input type="text" id="myNameInput" placeholder="Ditt namn" autocomplete="off">
+      <button type="button" id="saveNameBtn">Spara</button>
+    </div>
+
+    <h2 style="margin-top:20px;">Dela den gemensamma listan</h2>
     <p>
       Gäller bara fliken "Gemensam" – "Personlig" stannar alltid bara på den här enheten.
       Kräver ett gratis <strong>Supabase</strong>-projekt (supabase.com). Skapa ett projekt,
@@ -559,7 +566,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.5</div>
+  <div class="app-version mono">Shoppinglista v1.6</div>
 </div>
 
 <script>
@@ -1719,8 +1726,17 @@
 
   document.getElementById('settingsToggleBtn').addEventListener('click', function () {
     document.getElementById('settingsPanel').classList.toggle('open');
+    document.getElementById('myNameInput').value = loadUserName() || '';
     renderMembers();
     updateDashboardLink();
+  });
+
+  document.getElementById('saveNameBtn').addEventListener('click', function () {
+    var input = document.getElementById('myNameInput');
+    var name = input.value.trim();
+    if (!name) return;
+    try { localStorage.setItem(USER_KEY, name); } catch (e) {}
+    input.value = name;
   });
 
   document.getElementById('syncGenCodeBtn').addEventListener('click', function () {
