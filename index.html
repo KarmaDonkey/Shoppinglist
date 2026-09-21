@@ -598,7 +598,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.9</div>
+  <div class="app-version mono">Shoppinglista v1.10</div>
 </div>
 
 <script>
@@ -680,6 +680,15 @@
     ['hushållspapper', 'Hygien & hushåll'], ['tandkräm', 'Hygien & hushåll'], ['schampo', 'Hygien & hushåll'],
     ['tvål', 'Hygien & hushåll'], ['blöjor', 'Hygien & hushåll']
   ].sort(function (a, b) { return b[0].length - a[0].length; });
+
+  /* Tidies up item text as it's added: collapses stray whitespace and
+     capitalizes the first letter, so "mjölk" and "MJÖLK  bra" both come
+     out looking like the rest of the list ("Mjölk", "MJÖLK bra"). */
+  function tidyText(text) {
+    var t = text.replace(/\s+/g, ' ').trim();
+    if (!t) return t;
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
 
   function guessCategory(text) {
     var lower = text.toLowerCase();
@@ -1010,7 +1019,7 @@
   }
 
   function addItem(storeId, text, qtyRaw) {
-    text = text.trim();
+    text = tidyText(text);
     if (!text) return;
     var store = findStore(storeId);
     if (!store) return;
@@ -1213,8 +1222,10 @@
       var cleaned = line.replace(/^[\s]*[-*•]+\s*/, '').replace(/^[\s]*\d+[.)]\s*/, '').trim();
       if (!cleaned) return;
       var parsed = splitTextAndQty(cleaned);
+      var tidiedText = tidyText(parsed.t);
+      if (!tidiedText) return;
       var store = getOrCreateStoreByName(currentStoreName || 'Osorterat');
-      var item = { id: genId(), t: parsed.t, qty: parsed.qty, cat: guessCategory(parsed.t), by: ensureUserName(), d: false };
+      var item = { id: genId(), t: tidiedText, qty: parsed.qty, cat: guessCategory(tidiedText), by: ensureUserName(), d: false };
       insertItemSorted(store, item);
       anyAdded = true;
     });
