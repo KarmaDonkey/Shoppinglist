@@ -416,6 +416,23 @@
     cursor: pointer;
   }
   .paste-suggestion-create { border-color: var(--accent); color: var(--accent); }
+  .paste-suggestion-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid var(--hairline);
+    background: var(--surface-2);
+  }
+  .paste-suggestion-chip .paste-suggestion-label {
+    border: none;
+    background: none;
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 6px 4px 6px 10px;
+  }
+  .paste-suggestion-chip .icon-btn { font-size: 12px; padding: 4px 8px 4px 2px; }
 
   .app-version { text-align: center; font-size: 11px; color: var(--ink-faint); margin-top: 32px; }
 
@@ -632,7 +649,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.15</div>
+  <div class="app-version mono">Shoppinglista v1.16</div>
 </div>
 
 <script>
@@ -642,6 +659,7 @@
   var ACTIVE_LIST_KEY = 'shoppinglista-aktiv-lista-v1';
   var USER_KEY = 'shoppinglista-anvandare-v1';
   var SYNC_KEY = 'shoppinglista-sync-v1';
+  var STORE_HISTORY_MONTHS = 4;
 
   function genId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -1244,17 +1262,30 @@
 
   /* ---- "Topp 10"-förslag i "Ny affär": while typing a store name, look
      up every store that has ever carried a matching name - on Personlig,
-     on the active Gemensam trip, and in every archived Gemensam trip -
-     and count how often each item text shows up across all of them, so a
-     brand-new store (or one recreated after being deleted) can still
-     offer its usual items from day one. ---- */
+     on the active Gemensam trip, and in every archived Gemensam trip from
+     the last STORE_HISTORY_MONTHS months - and count how often each item
+     text shows up across all of them, so a brand-new store (or one
+     recreated after being deleted) can still offer its usual items from
+     day one. Personlig/active-trip items have no timestamp of their own
+     (they're "current", not history), so only archived trips are aged
+     out; a trip's archivedAt already exists on every archived trip. ---- */
+  function historyCutoffMs() {
+    var cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - STORE_HISTORY_MONTHS);
+    return cutoff.getTime();
+  }
+
   function collectAllStoreRecords() {
+    var cutoffMs = historyCutoffMs();
     var records = lists.personal.stores.concat(lists.shared.activeTrip.stores);
-    lists.shared.archive.forEach(function (trip) { records = records.concat(trip.stores); });
+    lists.shared.archive.forEach(function (trip) {
+      if (trip.archivedAt && trip.archivedAt < cutoffMs) return;
+      records = records.concat(trip.stores);
+    });
     return records;
   }
 
-  function getTopItemsForStoreQuery(query, limit) {
+  function getCountedItemsForStoreQuery(query) {
     var q = (query || '').trim().toLowerCase();
     if (q.length < 2) return [];
     var counts = {};
@@ -1269,7 +1300,81 @@
     });
     var list = Object.keys(counts).map(function (k) { return counts[k]; });
     list.sort(function (a, b) { return b.count - a.count || a.text.localeCompare(b.text, 'sv'); });
-    return list.slice(0, limit || 10);
+    return list;
+  }
+
+  function getTopItemsForStoreQuery(query, limit) {
+    return getCountedItemsForStoreQuery(query).slice(0, limit || 10);
+  }
+
+  /* Deleting a history item only ever removes it from *history*: archived
+     trips (within the same time window the counts are based on), and
+     already-checked-off items on Personlig/the active trip. An item that's
+     still unchecked - i.e. still needed on an actual shopping list - is
+     never touched, even if its text matches. */
+  function deleteHistoryItemForStoreQuery(query, itemText) {
+    var q = (query || '').trim().toLowerCase();
+    var textKey = itemText.trim().toLowerCase();
+    var cutoffMs = historyCutoffMs();
+    var changed = false;
+    var blockedByActiveItem = false;
+
+    function purge(store, onlyDone) {
+      if (store.name.toLowerCase().indexOf(q) === -1) return;
+      store.items = store.items.filter(function (item) {
+        if (item.t.trim().toLowerCase() !== textKey) return true;
+        if (onlyDone && !item.d) { blockedByActiveItem = true; return true; }
+        changed = true;
+        return false;
+      });
+    }
+
+    lists.personal.stores.forEach(function (s) { purge(s, true); });
+    lists.shared.activeTrip.stores.forEach(function (s) { purge(s, true); });
+    lists.shared.archive.forEach(function (trip) {
+      if (trip.archivedAt && trip.archivedAt < cutoffMs) return;
+      trip.stores.forEach(function (s) { purge(s, false); });
+    });
+
+    if (changed) {
+      persistLists();
+      if (!activeListKey || activeListKey === 'shared') scheduleSync();
+      render();
+    }
+    return { changed: changed, blockedByActiveItem: blockedByActiveItem };
+  }
+
+  function showStoreHistoryModal(query) {
+    var box = el('div', { class: 'modal-box' });
+    box.appendChild(el('h3', { text: 'Historik: varor' }));
+    var items = getCountedItemsForStoreQuery(query);
+    if (items.length === 0) {
+      box.appendChild(el('p', { class: 'empty-hint', text: 'Inga varor i historiken än.' }));
+    } else {
+      items.forEach(function (it) {
+        var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort ur historiken', text: '✕' });
+        deleteBtn.addEventListener('click', function () {
+          if (!confirm('Ta bort "' + it.text + '" ur historiken? Detta påverkar bara Topp 10-förslagen, inte varor som redan ligger obockade på en lista.')) return;
+          var result = deleteHistoryItemForStoreQuery(query, it.text);
+          if (!result.changed && result.blockedByActiveItem) {
+            alert('"' + it.text + '" ligger fortfarande obockad på en aktiv lista och kan bara tas bort där.');
+          }
+          renderNewStoreItemSuggestions();
+          showStoreHistoryModal(query);
+        });
+        box.appendChild(el('div', { class: 'archive-row' }, [
+          el('div', { class: 'name' }, [
+            document.createTextNode(it.text),
+            el('span', { class: 'count mono', text: ' (' + it.count + ' ggr)' })
+          ]),
+          el('div', { class: 'archive-actions' }, [deleteBtn])
+        ]));
+      });
+    }
+    var cancel = el('button', { type: 'button', class: 'modal-cancel', text: 'Stäng' });
+    cancel.addEventListener('click', closeModal);
+    box.appendChild(cancel);
+    openModal(box);
   }
 
   /* ---- Paste a free-text list (e.g. written by an AI elsewhere) and
@@ -1944,18 +2049,31 @@
   function renderNewStoreItemSuggestions() {
     var input = document.getElementById('addStoreInput');
     var container = document.getElementById('newStoreItemSuggestions');
+    var query = input.value;
     container.innerHTML = '';
-    var items = getTopItemsForStoreQuery(input.value, 10);
+    var items = getTopItemsForStoreQuery(query, 10);
     if (items.length === 0) { container.classList.remove('open'); return; }
     items.forEach(function (it) {
-      var btn = el('button', { type: 'button', class: 'paste-suggestion', text: it.text });
-      btn.addEventListener('click', function () {
+      var addBtn = el('button', { type: 'button', class: 'paste-suggestion-label', text: it.text });
+      addBtn.addEventListener('click', function () {
         var store = getOrCreateStoreByName(tidyStoreName(input.value));
         addItem(store.id, it.text, null);
         input.focus();
       });
-      container.appendChild(btn);
+      var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort ur historiken', text: '✕' });
+      deleteBtn.addEventListener('click', function () {
+        if (!confirm('Ta bort "' + it.text + '" ur historiken? Detta påverkar bara Topp 10-förslagen, inte varor som redan ligger obockade på en lista.')) return;
+        var result = deleteHistoryItemForStoreQuery(query, it.text);
+        if (!result.changed && result.blockedByActiveItem) {
+          alert('"' + it.text + '" ligger fortfarande obockad på en aktiv lista och kan bara tas bort där.');
+        }
+        renderNewStoreItemSuggestions();
+      });
+      container.appendChild(el('div', { class: 'paste-suggestion-chip' }, [addBtn, deleteBtn]));
     });
+    var historyLink = el('button', { type: 'button', class: 'manage-stores-link', text: 'Visa detaljerad historik' });
+    historyLink.addEventListener('click', function () { showStoreHistoryModal(query); });
+    container.appendChild(historyLink);
     container.classList.add('open');
   }
 
