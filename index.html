@@ -543,7 +543,7 @@
 
   <div class="section-heading">Skriv eller klistra in</div>
   <div class="paste-box">
-    <textarea id="pasteTextarea" rows="5" placeholder="Klistra in text. Skriv en affärs namn på egen rad för att gruppera varorna under den, eller skriv @ för att få förslag — allt annat hamnar under &quot;Osorterat&quot;."></textarea>
+    <textarea id="pasteTextarea" rows="5" placeholder="Klistra in text. Skriv en affärs namn på egen rad för att gruppera varorna under den, eller skriv @ för att få förslag — allt annat hamnar under &quot;Osorterat&quot;. Skriv t.ex. &quot;Mjölk, 2&quot; för att ange antal."></textarea>
     <div class="paste-suggestions" id="pasteSuggestions"></div>
     <div class="paste-row">
       <button type="button" id="pasteAddBtn">Lägg till</button>
@@ -567,7 +567,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.7</div>
+  <div class="app-version mono">Shoppinglista v1.8</div>
 </div>
 
 <script>
@@ -1124,6 +1124,21 @@
      header. Anything before the first recognized header - or the whole
      paste, if no store name is found at all - lands in a store called
      "Osorterat" instead of being silently dropped. ---- */
+  /* A trailing ", <qty>" is split off when the part after the last comma
+     looks like a quantity (a number, optionally with a decimal and/or a
+     short unit word: "2", "1.5 kg", "3 st"). Anything else after a comma
+     is left alone and stays part of the item text. */
+  function splitTextAndQty(line) {
+    var lastComma = line.lastIndexOf(',');
+    if (lastComma === -1) return { t: line, qty: null };
+    var textPart = line.slice(0, lastComma).trim();
+    var qtyPart = line.slice(lastComma + 1).trim();
+    if (textPart && /^\d+([.,]\d+)?\s*[a-zA-ZåäöÅÄÖ]*$/.test(qtyPart)) {
+      return { t: textPart, qty: qtyPart };
+    }
+    return { t: line, qty: null };
+  }
+
   function addPastedLines() {
     var textarea = document.getElementById('pasteTextarea');
     var rawLines = textarea.value.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l.length > 0; });
@@ -1138,8 +1153,9 @@
       }
       var cleaned = line.replace(/^[\s]*[-*•]+\s*/, '').replace(/^[\s]*\d+[.)]\s*/, '').trim();
       if (!cleaned) return;
+      var parsed = splitTextAndQty(cleaned);
       var store = getOrCreateStoreByName(currentStoreName || 'Osorterat');
-      var item = { id: genId(), t: cleaned, qty: null, cat: guessCategory(cleaned), by: ensureUserName(), d: false };
+      var item = { id: genId(), t: parsed.t, qty: parsed.qty, cat: guessCategory(parsed.t), by: ensureUserName(), d: false };
       insertItemSorted(store, item);
       anyAdded = true;
     });
