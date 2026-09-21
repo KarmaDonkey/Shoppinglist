@@ -626,6 +626,7 @@
   <div class="paste-box">
     <textarea id="pasteTextarea" rows="5" inputmode="email" placeholder="Klistra in text. Skriv en affärs namn på egen rad för att gruppera varorna under den, eller skriv @ för att få förslag — allt annat hamnar under &quot;Osorterat&quot;. Skriv t.ex. &quot;Mjölk, 2&quot; för att ange antal."></textarea>
     <div class="paste-suggestions" id="pasteSuggestions"></div>
+    <div class="paste-suggestions" id="pasteItemSuggestions"></div>
     <div class="paste-row">
       <button type="button" id="pasteAddBtn">Lägg till</button>
     </div>
@@ -649,7 +650,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.16</div>
+  <div class="app-version mono">Shoppinglista v1.17</div>
 </div>
 
 <script>
@@ -1422,6 +1423,10 @@
       anyAdded = true;
     });
     textarea.value = '';
+    pasteStickyStoreName = null;
+    var itemSuggestions = document.getElementById('pasteItemSuggestions');
+    itemSuggestions.innerHTML = '';
+    itemSuggestions.classList.remove('open');
     if (anyAdded) { save(); render(); }
   }
 
@@ -1990,36 +1995,101 @@
     container.classList.remove('open');
   }
 
+  /* Topp 10-förslag för @-butiken i inklistringsrutan. While the "@..."
+     query is still live, chips are computed from it directly; once a
+     store name has been inserted (its header line placed), ctx goes
+     null on the next render, so we fall back to pasteStickyStoreName -
+     set whenever a store/item gets picked - so the chips (and further
+     item taps) keep working without needing to type "@" again. */
+  var pasteStickyStoreName = null;
+
+  function insertPasteItem(ctx, storeName, itemText) {
+    var textarea = document.getElementById('pasteTextarea');
+    if (ctx) {
+      var text = textarea.value;
+      var insertion = storeName + '\n' + itemText + '\n';
+      var newText = text.slice(0, ctx.atIndex) + insertion + text.slice(ctx.atIndex + 1 + ctx.query.length);
+      textarea.value = newText;
+      var newPos = ctx.atIndex + insertion.length;
+      textarea.setSelectionRange(newPos, newPos);
+      var storeContainer = document.getElementById('pasteSuggestions');
+      storeContainer.innerHTML = '';
+      storeContainer.classList.remove('open');
+    } else {
+      var pos = textarea.selectionStart;
+      var text2 = textarea.value;
+      var insertion2 = itemText + '\n';
+      textarea.value = text2.slice(0, pos) + insertion2 + text2.slice(pos);
+      textarea.setSelectionRange(pos + insertion2.length, pos + insertion2.length);
+    }
+    textarea.focus();
+    pasteStickyStoreName = storeName;
+    renderPasteItemChips(null);
+  }
+
+  function renderPasteItemChips(ctx) {
+    var container = document.getElementById('pasteItemSuggestions');
+    container.innerHTML = '';
+    var query = ctx ? ctx.query : pasteStickyStoreName;
+    var items = query ? getTopItemsForStoreQuery(query, 10) : [];
+    if (!query || items.length === 0) { container.classList.remove('open'); return; }
+    var storeName = tidyStoreName(query);
+    items.forEach(function (it) {
+      var addBtn = el('button', { type: 'button', class: 'paste-suggestion-label', text: it.text });
+      addBtn.addEventListener('click', function () { insertPasteItem(ctx, storeName, it.text); });
+      var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort ur historiken', text: '✕' });
+      deleteBtn.addEventListener('click', function () {
+        if (!confirm('Ta bort "' + it.text + '" ur historiken? Detta påverkar bara Topp 10-förslagen, inte varor som redan ligger obockade på en lista.')) return;
+        var result = deleteHistoryItemForStoreQuery(query, it.text);
+        if (!result.changed && result.blockedByActiveItem) {
+          alert('"' + it.text + '" ligger fortfarande obockad på en aktiv lista och kan bara tas bort där.');
+        }
+        renderPasteItemChips(ctx);
+      });
+      container.appendChild(el('div', { class: 'paste-suggestion-chip' }, [addBtn, deleteBtn]));
+    });
+    var historyLink = el('button', { type: 'button', class: 'manage-stores-link', text: 'Visa detaljerad historik' });
+    historyLink.addEventListener('click', function () { showStoreHistoryModal(query); });
+    container.appendChild(historyLink);
+    container.classList.add('open');
+  }
+
   function renderPasteSuggestions() {
     var textarea = document.getElementById('pasteTextarea');
     var container = document.getElementById('pasteSuggestions');
     container.innerHTML = '';
     var ctx = getAtQuery(textarea);
-    if (!ctx) { container.classList.remove('open'); return; }
+    if (!ctx) { container.classList.remove('open'); renderPasteItemChips(null); return; }
     var q = ctx.query.toLowerCase();
     var matches = state.filter(function (s) { return s.name.toLowerCase().indexOf(q) !== -1; });
     if (matches.length === 0) {
       var newName = tidyStoreName(ctx.query);
-      if (!newName) { container.classList.remove('open'); return; }
+      if (!newName) { container.classList.remove('open'); renderPasteItemChips(ctx); return; }
       var createBtn = el('button', { type: 'button', class: 'paste-suggestion paste-suggestion-create', text: '+ Skapa "' + newName + '"' });
       createBtn.addEventListener('click', function () {
         var store = getOrCreateStoreByName(newName);
         save();
         render();
+        pasteStickyStoreName = store.name;
         insertPasteSuggestion(textarea, container, ctx, store.name);
+        renderPasteItemChips(null);
       });
       container.appendChild(createBtn);
       container.classList.add('open');
+      renderPasteItemChips(ctx);
       return;
     }
     matches.forEach(function (s) {
       var btn = el('button', { type: 'button', class: 'paste-suggestion', text: s.name });
       btn.addEventListener('click', function () {
+        pasteStickyStoreName = s.name;
         insertPasteSuggestion(textarea, container, ctx, s.name);
+        renderPasteItemChips(null);
       });
       container.appendChild(btn);
     });
     container.classList.add('open');
+    renderPasteItemChips(ctx);
   }
 
   var pasteTextareaEl = document.getElementById('pasteTextarea');
