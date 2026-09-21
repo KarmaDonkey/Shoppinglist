@@ -559,7 +559,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.4</div>
+  <div class="app-version mono">Shoppinglista v1.5</div>
 </div>
 
 <script>
@@ -845,7 +845,7 @@
     var hasItems = current.stores.some(function (s) { return s.items.length > 0; });
     if (hasItems) {
       var hasUnchecked = current.stores.some(function (s) { return s.items.some(function (i) { return !i.d; }); });
-      if (hasUnchecked && !confirm('Handlingen "' + current.date + '" har varor kvar som inte är avbockade. Arkivera den ändå och starta en ny?')) return;
+      if (hasUnchecked && !confirm('Inköpsrundan "' + current.date + '" har varor kvar som inte är avbockade. Arkivera den ändå och starta en ny?')) return;
       archiveCurrentTrip();
       lists.shared.activeTrip = { id: genId(), date: todayStr(), stores: carryOverStores(current.stores) };
     } else {
@@ -882,7 +882,7 @@
     var current = lists.shared.activeTrip;
     var currentHasItems = current.stores.some(function (s) { return s.items.length > 0; });
     if (currentHasItems) {
-      if (!confirm('Din nuvarande handling har varor kvar. Arkivera den och återuppta handlingen från ' + trip.date + ' istället?')) return;
+      if (!confirm('Din nuvarande inköpsrunda har varor kvar. Arkivera den och återuppta inköpsrundan från ' + trip.date + ' istället?')) return;
       archiveCurrentTrip();
     }
     lists.shared.archive.splice(idx, 1);
@@ -899,7 +899,7 @@
       if (lists.shared.archive[i].id === tripId) { trip = lists.shared.archive[i]; break; }
     }
     if (!trip) return;
-    if (!confirm('Ta bort den arkiverade handlingen från ' + trip.date + ' permanent?')) return;
+    if (!confirm('Ta bort den arkiverade inköpsrundan från ' + trip.date + ' permanent?')) return;
     lists.shared.archive = lists.shared.archive.filter(function (t) { return t.id !== tripId; });
     persistLists();
     if (!activeListKey || activeListKey === 'shared') scheduleSync();
@@ -1320,9 +1320,9 @@
 
   function showArchiveModal() {
     var box = el('div', { class: 'modal-box' });
-    box.appendChild(el('h3', { text: 'Arkiverade handlingar' }));
+    box.appendChild(el('h3', { text: 'Arkiverade inköpsrundor' }));
     if (lists.shared.archive.length === 0) {
-      box.appendChild(el('p', { class: 'empty-hint', text: 'Inga arkiverade handlingar än.' }));
+      box.appendChild(el('p', { class: 'empty-hint', text: 'Inga arkiverade inköpsrundor än.' }));
     } else {
       lists.shared.archive.forEach(function (trip) {
         var count = trip.stores.reduce(function (n, s) { return n + s.items.length; }, 0);
@@ -1556,8 +1556,8 @@
     var bar = document.getElementById('tripBar');
     bar.innerHTML = '';
     if (activeListKey !== 'shared') return;
-    bar.appendChild(el('span', { class: 'trip-date', text: 'Handling: ' + lists.shared.activeTrip.date }));
-    var newTripBtn = el('button', { type: 'button', text: 'Ny handling' });
+    bar.appendChild(el('span', { class: 'trip-date', text: 'Inköpsrunda: ' + lists.shared.activeTrip.date }));
+    var newTripBtn = el('button', { type: 'button', text: 'Ny inköpsrunda' });
     newTripBtn.addEventListener('click', startNewTrip);
     var archiveBtn = el('button', { type: 'button', text: 'Arkiv (' + lists.shared.archive.length + ')' });
     archiveBtn.addEventListener('click', showArchiveModal);
