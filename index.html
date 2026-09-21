@@ -631,7 +631,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.13</div>
+  <div class="app-version mono">Shoppinglista v1.14</div>
 </div>
 
 <script>
@@ -721,6 +721,15 @@
     var t = text.replace(/\s+/g, ' ').trim();
     if (!t) return t;
     return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  /* Store names get a capital first letter in every word ("arken zoo" ->
+     "Arken Zoo"), unlike item text which only capitalizes the start of
+     the line - store names read more like proper names/titles. */
+  function tidyStoreName(name) {
+    var t = name.replace(/\s+/g, ' ').trim();
+    if (!t) return t;
+    return t.replace(/\S+/g, function (w) { return w.charAt(0).toUpperCase() + w.slice(1); });
   }
 
   var CATEGORY_LETTER_RE = /[a-zäåö]/i;
@@ -1036,7 +1045,7 @@
   }
 
   function addStore(name) {
-    name = name.trim();
+    name = tidyStoreName(name);
     if (!name) return;
     state.push({ id: genId(), name: name, items: [], catOrder: [] });
     save();
@@ -1227,7 +1236,7 @@
   function getOrCreateStoreByName(name) {
     var store = findStoreByName(name);
     if (store) return store;
-    store = { id: genId(), name: name, items: [], catOrder: [] };
+    store = { id: genId(), name: tidyStoreName(name), items: [], catOrder: [] };
     state.push(store);
     return store;
   }
@@ -1820,15 +1829,16 @@
 
   /* "@" in the paste box triggers store-name suggestions below the
      textarea, since a real caret-anchored popup is fragile on mobile
-     keyboards. Finds the nearest unbroken "@token" ending at the cursor
-     and matches it against known store names. */
+     keyboards. Finds the "@..." run from the last "@" to the cursor,
+     stopping only at a newline (store names may contain spaces), and
+     matches it against known store names. */
   function getAtQuery(textarea) {
     var pos = textarea.selectionStart;
     var before = textarea.value.slice(0, pos);
     var atIndex = before.lastIndexOf('@');
     if (atIndex === -1) return null;
     var query = before.slice(atIndex + 1);
-    if (/\s/.test(query)) return null;
+    if (/\n/.test(query)) return null;
     return { atIndex: atIndex, query: query };
   }
 
@@ -1853,7 +1863,7 @@
     var q = ctx.query.toLowerCase();
     var matches = state.filter(function (s) { return s.name.toLowerCase().indexOf(q) !== -1; });
     if (matches.length === 0) {
-      var newName = ctx.query.trim();
+      var newName = tidyStoreName(ctx.query);
       if (!newName) { container.classList.remove('open'); return; }
       var createBtn = el('button', { type: 'button', class: 'paste-suggestion paste-suggestion-create', text: '+ Skapa "' + newName + '"' });
       createBtn.addEventListener('click', function () {
