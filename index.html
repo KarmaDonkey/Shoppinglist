@@ -477,6 +477,37 @@
     font-size: 14px;
     cursor: pointer;
   }
+  .modal-box label {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 10px 0 4px;
+  }
+  .modal-box input, .modal-box select {
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--hairline);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 15px;
+  }
+  .modal-save {
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding: 12px;
+    margin-top: 14px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--bg);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -567,7 +598,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.8</div>
+  <div class="app-version mono">Shoppinglista v1.9</div>
 </div>
 
 <script>
@@ -990,22 +1021,50 @@
     render();
   }
 
-  function editItem(storeId, itemId) {
+  function showEditItemModal(storeId, itemId) {
     var store = findStore(storeId);
     if (!store) return;
     var item = findItem(store, itemId);
     if (!item) return;
-    var newText = prompt('Redigera vara:', item.t);
-    if (newText === null) return;
-    newText = newText.trim();
-    if (!newText) return;
-    var newQty = prompt('Antal (lämna tomt för inget):', item.qty || '');
-    if (newQty === null) newQty = item.qty || '';
-    item.t = newText;
-    item.qty = newQty.trim() || null;
-    item.cat = guessCategory(newText);
-    save();
-    render();
+
+    var box = el('div', { class: 'modal-box' });
+    box.appendChild(el('h3', { text: 'Redigera vara' }));
+
+    box.appendChild(el('label', { text: 'Vara' }));
+    var textInput = el('input', { type: 'text', value: item.t });
+    box.appendChild(textInput);
+
+    box.appendChild(el('label', { text: 'Antal' }));
+    var qtyInput = el('input', { type: 'text', value: item.qty || '' });
+    box.appendChild(qtyInput);
+
+    box.appendChild(el('label', { text: 'Kategori' }));
+    var catSelect = el('select', {});
+    CATEGORY_ORDER.forEach(function (cat) {
+      var opt = el('option', { value: cat, text: cat });
+      if (cat === item.cat) opt.selected = true;
+      catSelect.appendChild(opt);
+    });
+    box.appendChild(catSelect);
+
+    var saveBtn = el('button', { type: 'button', class: 'modal-save', text: 'Spara' });
+    saveBtn.addEventListener('click', function () {
+      var newText = textInput.value.trim();
+      if (!newText) return;
+      item.t = newText;
+      item.qty = qtyInput.value.trim() || null;
+      item.cat = catSelect.value;
+      save();
+      render();
+      closeModal();
+    });
+    box.appendChild(saveBtn);
+
+    var cancel = el('button', { type: 'button', class: 'modal-cancel', text: 'Avbryt' });
+    cancel.addEventListener('click', closeModal);
+    box.appendChild(cancel);
+
+    openModal(box);
   }
 
   function removeItem(storeId, itemId) {
@@ -1503,7 +1562,7 @@
         showStorePicker(store.id, function (targetId) { moveItemToStore(store.id, item.id, targetId); });
       });
       var editBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Redigera', text: '✎' });
-      editBtn.addEventListener('click', function () { editItem(store.id, item.id); });
+      editBtn.addEventListener('click', function () { showEditItemModal(store.id, item.id); });
       actionButtons = [dragHandle, upBtn, downBtn, moveBtn, editBtn, removeBtn];
     } else {
       actionButtons = [removeBtn];
