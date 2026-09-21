@@ -6,7 +6,8 @@ var APP_SHELL = [
   './icons/icon-32.png',
   './icons/icon-180.png',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './images/katt.png'
 ];
 
 self.addEventListener('install', function (e) {
