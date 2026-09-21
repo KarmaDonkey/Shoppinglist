@@ -622,6 +622,7 @@
     <input type="text" id="addStoreInput" class="item-text-input" placeholder="Namn på affär, t.ex. ICA Nacka Forum…" autocomplete="off">
     <button type="submit">Skapa</button>
   </form>
+  <div class="paste-suggestions" id="newStoreItemSuggestions"></div>
 
   <div class="section-heading">Lägg till vara</div>
   <form class="add-form" id="globalAddForm">
@@ -631,7 +632,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.14</div>
+  <div class="app-version mono">Shoppinglista v1.15</div>
 </div>
 
 <script>
@@ -1047,7 +1048,7 @@
   function addStore(name) {
     name = tidyStoreName(name);
     if (!name) return;
-    state.push({ id: genId(), name: name, items: [], catOrder: [] });
+    getOrCreateStoreByName(name);
     save();
     render();
   }
@@ -1239,6 +1240,36 @@
     store = { id: genId(), name: tidyStoreName(name), items: [], catOrder: [] };
     state.push(store);
     return store;
+  }
+
+  /* ---- "Topp 10"-förslag i "Ny affär": while typing a store name, look
+     up every store that has ever carried a matching name - on Personlig,
+     on the active Gemensam trip, and in every archived Gemensam trip -
+     and count how often each item text shows up across all of them, so a
+     brand-new store (or one recreated after being deleted) can still
+     offer its usual items from day one. ---- */
+  function collectAllStoreRecords() {
+    var records = lists.personal.stores.concat(lists.shared.activeTrip.stores);
+    lists.shared.archive.forEach(function (trip) { records = records.concat(trip.stores); });
+    return records;
+  }
+
+  function getTopItemsForStoreQuery(query, limit) {
+    var q = (query || '').trim().toLowerCase();
+    if (q.length < 2) return [];
+    var counts = {};
+    collectAllStoreRecords().forEach(function (store) {
+      if (store.name.toLowerCase().indexOf(q) === -1) return;
+      store.items.forEach(function (item) {
+        var key = item.t.trim().toLowerCase();
+        if (!key) return;
+        if (!counts[key]) counts[key] = { text: tidyText(item.t), count: 0 };
+        counts[key].count++;
+      });
+    });
+    var list = Object.keys(counts).map(function (k) { return counts[k]; });
+    list.sort(function (a, b) { return b.count - a.count || a.text.localeCompare(b.text, 'sv'); });
+    return list.slice(0, limit || 10);
   }
 
   /* ---- Paste a free-text list (e.g. written by an AI elsewhere) and
@@ -1910,11 +1941,34 @@
     });
   }
 
+  function renderNewStoreItemSuggestions() {
+    var input = document.getElementById('addStoreInput');
+    var container = document.getElementById('newStoreItemSuggestions');
+    container.innerHTML = '';
+    var items = getTopItemsForStoreQuery(input.value, 10);
+    if (items.length === 0) { container.classList.remove('open'); return; }
+    items.forEach(function (it) {
+      var btn = el('button', { type: 'button', class: 'paste-suggestion', text: it.text });
+      btn.addEventListener('click', function () {
+        var store = getOrCreateStoreByName(tidyStoreName(input.value));
+        addItem(store.id, it.text, null);
+        input.focus();
+      });
+      container.appendChild(btn);
+    });
+    container.classList.add('open');
+  }
+
+  document.getElementById('addStoreInput').addEventListener('input', renderNewStoreItemSuggestions);
+
   document.getElementById('addStoreForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var input = document.getElementById('addStoreInput');
     addStore(input.value);
     input.value = '';
+    var suggestions = document.getElementById('newStoreItemSuggestions');
+    suggestions.innerHTML = '';
+    suggestions.classList.remove('open');
   });
 
   document.getElementById('settingsToggleBtn').addEventListener('click', function () {
