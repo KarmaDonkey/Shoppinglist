@@ -598,7 +598,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.10</div>
+  <div class="app-version mono">Shoppinglista v1.11</div>
 </div>
 
 <script>
@@ -657,7 +657,7 @@
     ['grädde', 'Mejeri'], ['smör', 'Mejeri'], ['parmesan', 'Mejeri'], ['keso', 'Mejeri'], ['crème fraiche', 'Mejeri'],
     ['ost', 'Mejeri'], ['ägg', 'Mejeri'], ['margarin', 'Mejeri'],
 
-    ['köttfärs', 'Kött & fisk'], ['fläskfilé', 'Kött & fisk'], ['kyckling', 'Kött & fisk'], ['korv', 'Kött & fisk'],
+    ['köttfärs', 'Kött & fisk'], ['fläskfilé', 'Kött & fisk'], ['fläsk', 'Kött & fisk'], ['kyckling', 'Kött & fisk'], ['korv', 'Kött & fisk'],
     ['bacon', 'Kött & fisk'], ['lax', 'Kött & fisk'], ['fisk', 'Kött & fisk'], ['räkor', 'Kött & fisk'],
     ['skinka', 'Kött & fisk'], ['biff', 'Kött & fisk'], ['kalkon', 'Kött & fisk'], ['tofu', 'Kött & fisk'],
     ['kött', 'Kött & fisk'],
@@ -690,10 +690,24 @@
     return t.charAt(0).toUpperCase() + t.slice(1);
   }
 
+  var CATEGORY_LETTER_RE = /[a-zäåö]/i;
+
+  /* A plain substring match would let "läsk" (Dryck) match inside
+     "fläsk" (Kött & fisk), or "ost" (Mejeri) inside "rostade" (nuts).
+     Requiring no letter immediately BEFORE a keyword blocks both, while
+     still allowing it to match as the first part of a Swedish compound
+     word that continues straight on afterwards, like "choklad" inside
+     "chokladkaka" - checking both sides would break that too. */
   function guessCategory(text) {
     var lower = text.toLowerCase();
     for (var i = 0; i < CATEGORY_KEYWORDS.length; i++) {
-      if (lower.indexOf(CATEGORY_KEYWORDS[i][0]) !== -1) return CATEGORY_KEYWORDS[i][1];
+      var kw = CATEGORY_KEYWORDS[i][0];
+      var idx = lower.indexOf(kw);
+      while (idx !== -1) {
+        var before = idx > 0 ? lower.charAt(idx - 1) : '';
+        if (!CATEGORY_LETTER_RE.test(before)) return CATEGORY_KEYWORDS[i][1];
+        idx = lower.indexOf(kw, idx + 1);
+      }
     }
     return 'Övrigt';
   }
