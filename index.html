@@ -246,6 +246,7 @@
     border-bottom: 1px solid var(--hairline);
   }
   .store-actions { display: flex; align-items: center; }
+  .icon-btn.call { color: var(--accent); }
   .store-header h2 {
     font-family: 'Source Serif 4', serif;
     font-size: 18px;
@@ -650,7 +651,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.17</div>
+  <div class="app-version mono">Shoppinglista v1.18</div>
 </div>
 
 <script>
@@ -1077,6 +1078,16 @@
     if (!store) return;
     if (!confirm('Ta bort affären "' + store.name + '" permanent, inklusive dess inlärda sorteringsordning?')) return;
     state = state.filter(function (s) { return s.id !== storeId; });
+    save();
+    render();
+  }
+
+  function setStorePhone(storeId, phone) {
+    var store = findStore(storeId);
+    if (!store) return;
+    var trimmed = (phone || '').trim();
+    if (trimmed) store.phone = trimmed;
+    else delete store.phone;
     save();
     render();
   }
@@ -1818,12 +1829,22 @@
     if (isLast) downBtn.disabled = true;
     downBtn.addEventListener('click', function () { moveStoreUpDown(store.id, 1); });
 
+    var actions = [upBtn, downBtn, deleteBtn];
+    if (store.phone) {
+      var callBtn = el('a', {
+        class: 'icon-btn call',
+        title: 'Ring ' + store.name + ' (' + store.phone + ')',
+        href: 'tel:' + store.phone.replace(/[^\d+]/g, '')
+      }, [document.createTextNode('📞')]);
+      actions.unshift(callBtn);
+    }
+
     var header = el('div', { class: 'store-header' }, [
       el('h2', {}, [
         document.createTextNode(store.name),
         el('span', { class: 'store-count mono', text: '(' + store.items.length + ')' })
       ]),
-      el('div', { class: 'store-actions' }, [upBtn, downBtn, deleteBtn])
+      el('div', { class: 'store-actions' }, actions)
     ]);
 
     var actives = store.items.filter(function (i) { return !i.d; });
@@ -1911,14 +1932,28 @@
     } else {
       var sorted = state.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'sv'); });
       sorted.forEach(function (s) {
+        var phoneBtn = el('button', {
+          type: 'button',
+          class: s.phone ? 'icon-btn call' : 'icon-btn',
+          title: s.phone ? 'Ändra telefonnummer' : 'Lägg till telefonnummer',
+          text: '📞'
+        });
+        phoneBtn.addEventListener('click', function () {
+          var next = prompt('Telefonnummer för "' + s.name + '" (lämna tomt för att ta bort):', s.phone || '');
+          if (next === null) return;
+          setStorePhone(s.id, next);
+          showManageStoresModal();
+        });
         var deleteBtn = el('button', { type: 'button', class: 'icon-btn danger', title: 'Ta bort', text: '✕' });
         deleteBtn.addEventListener('click', function () { removeStore(s.id); showManageStoresModal(); });
+        var nameChildren = [
+          document.createTextNode(s.name),
+          el('span', { class: 'count mono', text: ' (' + s.items.length + ' varor)' })
+        ];
+        if (s.phone) nameChildren.push(el('span', { class: 'count mono', text: ' · ' + s.phone }));
         box.appendChild(el('div', { class: 'archive-row' }, [
-          el('div', { class: 'name' }, [
-            document.createTextNode(s.name),
-            el('span', { class: 'count mono', text: ' (' + s.items.length + ' varor)' })
-          ]),
-          el('div', { class: 'archive-actions' }, [deleteBtn])
+          el('div', { class: 'name' }, nameChildren),
+          el('div', { class: 'archive-actions' }, [phoneBtn, deleteBtn])
         ]));
       });
     }
