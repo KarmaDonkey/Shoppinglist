@@ -218,6 +218,7 @@
   .btn-secondary { background: var(--surface-2); color: var(--ink-soft); }
   .btn-danger { background: var(--surface-2); color: var(--over); }
   .sync-status { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
+  .sync-blob-hint { font-size: 12px; color: var(--ink-faint); margin: 10px 0 0; }
 
   .members-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hairline); }
   .members-list { margin-bottom: 6px; }
@@ -607,6 +608,15 @@
       <button type="button" id="syncGenCodeBtn">Slumpa</button>
       <button type="button" id="syncCopyCodeBtn">Kopiera</button>
     </div>
+    <p class="sync-blob-hint">
+      Ska du koppla ihop en till enhet? Kopiera allt här nedan som en enda klump och skicka den
+      (t.ex. som textmeddelande) – på den andra enheten klistrar du in den i ett enda steg istället
+      för URL, nyckel och kod var för sig.
+    </p>
+    <div class="sync-actions">
+      <button type="button" id="syncCopyAllBtn" class="btn-secondary">Kopiera allt</button>
+      <button type="button" id="syncPasteAllBtn" class="btn-secondary">Klistra in allt</button>
+    </div>
     <div class="sync-actions">
       <button type="button" id="syncConnectBtn" class="btn-primary">Anslut</button>
       <button type="button" id="syncDisconnectBtn" class="btn-danger">Koppla från</button>
@@ -651,7 +661,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.18</div>
+  <div class="app-version mono">Shoppinglista v1.19</div>
 </div>
 
 <script>
@@ -1510,6 +1520,28 @@
     });
   }
 
+  /* Bundles the three sync fields into one opaque, copy/paste-friendly
+     string (e.g. to send as a text message) instead of three separate
+     values each needing their own copy/paste. */
+  function encodeSyncBlob(url, anonKey, code) {
+    try {
+      var json = JSON.stringify({ u: url, k: anonKey, c: code });
+      return 'shoppinglista-sync-v1:' + btoa(unescape(encodeURIComponent(json)));
+    } catch (e) { return null; }
+  }
+
+  function decodeSyncBlob(blob) {
+    if (!blob) return null;
+    var trimmed = blob.trim();
+    var prefix = 'shoppinglista-sync-v1:';
+    var body = trimmed.indexOf(prefix) === 0 ? trimmed.slice(prefix.length) : trimmed;
+    try {
+      var data = JSON.parse(decodeURIComponent(escape(atob(body))));
+      if (!data || !data.u || !data.k || !data.c) return null;
+      return { url: data.u, anonKey: data.k, code: data.c };
+    } catch (e) { return null; }
+  }
+
   function disconnectSync() {
     if (syncChannel && supabaseClient) {
       try { supabaseClient.removeChannel(syncChannel); } catch (e) {}
@@ -2218,6 +2250,47 @@
     var code = document.getElementById('syncCodeInput').value;
     if (!code) return;
     if (navigator.clipboard) navigator.clipboard.writeText(code).catch(function () {});
+  });
+
+  document.getElementById('syncCopyAllBtn').addEventListener('click', function () {
+    var url = document.getElementById('syncUrlInput').value.trim();
+    var anonKey = document.getElementById('syncKeyInput').value.trim();
+    var code = document.getElementById('syncCodeInput').value.trim();
+    if (!url || !anonKey || !code) {
+      setSyncStatus('Fyll i URL, anon key och en delningskod innan du kopierar.');
+      return;
+    }
+    var blob = encodeSyncBlob(url, anonKey, code);
+    if (!blob) { setSyncStatus('Kunde inte skapa konfigurationen.'); return; }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(blob).then(function () {
+        setSyncStatus('Konfiguration kopierad – klistra in den på den andra enheten.');
+      }).catch(function () {
+        prompt('Kunde inte kopiera automatiskt. Kopiera den här texten:', blob);
+      });
+    } else {
+      prompt('Kopiera den här texten:', blob);
+    }
+  });
+
+  document.getElementById('syncPasteAllBtn').addEventListener('click', function () {
+    function applyBlob(blob) {
+      var parsed = decodeSyncBlob(blob);
+      if (!parsed) { setSyncStatus('Kunde inte tolka det inklistrade. Kontrollera att du kopierade hela klumpen.'); return; }
+      document.getElementById('syncUrlInput').value = parsed.url;
+      document.getElementById('syncKeyInput').value = parsed.anonKey;
+      document.getElementById('syncCodeInput').value = parsed.code;
+      setSyncStatus('Konfiguration inklistrad. Tryck Anslut för att koppla upp.');
+    }
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(applyBlob).catch(function () {
+        var manual = prompt('Klistra in konfigurationen här:');
+        if (manual) applyBlob(manual);
+      });
+    } else {
+      var manual = prompt('Klistra in konfigurationen här:');
+      if (manual) applyBlob(manual);
+    }
   });
 
   document.getElementById('syncConnectBtn').addEventListener('click', function () {
