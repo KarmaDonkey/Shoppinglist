@@ -685,7 +685,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.21</div>
+  <div class="app-version mono">Shoppinglista v1.22</div>
 </div>
 
 <script>
@@ -1658,7 +1658,7 @@
                 document.getElementById('syncUrlInput').value = parsed.url;
                 document.getElementById('syncKeyInput').value = parsed.anonKey;
                 document.getElementById('syncCodeInput').value = parsed.code;
-                setSyncStatus('Konfiguration inläst från QR-kod. Tryck Anslut för att koppla upp.');
+                connectSync(parsed.url, parsed.anonKey, parsed.code);
                 return;
               }
             }
