@@ -225,6 +225,18 @@
   .btn-danger { background: var(--surface-2); color: var(--over); }
   .sync-status { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
   .sync-blob-hint { font-size: 12px; color: var(--ink-faint); margin: 10px 0 0; }
+  .qr-canvas-wrap { display: flex; justify-content: center; padding: 10px 0 4px; }
+  .qr-canvas-wrap canvas { border-radius: 10px; }
+  .qr-video-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    border-radius: 12px;
+    background: #000;
+    margin: 4px 0;
+  }
+  .qr-video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
 
   .members-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hairline); }
   .members-list { margin-bottom: 6px; }
@@ -616,10 +628,15 @@
       <button type="button" id="syncCopyCodeBtn">Kopiera</button>
     </div>
     <p class="sync-blob-hint">
-      Ska du koppla ihop en till enhet? Kopiera allt här nedan som en enda klump och skicka den
-      (t.ex. som textmeddelande) – på den andra enheten klistrar du in den i ett enda steg istället
-      för URL, nyckel och kod var för sig.
+      Ska du koppla ihop en till enhet? Sitter ni bredvid varandra är en QR-kod snabbast – visa
+      den på din skärm och skanna med den andra enhetens kamera. Annars: kopiera allt här nedan
+      som en enda klump och skicka den (t.ex. som textmeddelande) – på den andra enheten klistrar
+      du in den i ett enda steg istället för URL, nyckel och kod var för sig.
     </p>
+    <div class="sync-actions">
+      <button type="button" id="syncShowQrBtn" class="btn-secondary">Visa QR-kod</button>
+      <button type="button" id="syncScanQrBtn" class="btn-secondary">Skanna QR-kod</button>
+    </div>
     <div class="sync-actions">
       <button type="button" id="syncCopyAllBtn" class="btn-secondary">Kopiera allt</button>
       <button type="button" id="syncPasteAllBtn" class="btn-secondary">Klistra in allt</button>
@@ -668,7 +685,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.20</div>
+  <div class="app-version mono">Shoppinglista v1.21</div>
 </div>
 
 <script>
@@ -1549,6 +1566,114 @@
     } catch (e) { return null; }
   }
 
+  function ensureQrEncodeLib(cb, onError) {
+    if (window.QRCode) return cb();
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcode@1/build/qrcode.min.js';
+    s.onload = cb;
+    s.onerror = onError || function () { setSyncStatus('Kunde inte ladda QR-biblioteket (kolla internetanslutningen).'); };
+    document.head.appendChild(s);
+  }
+
+  function ensureQrDecodeLib(cb, onError) {
+    if (window.jsQR) return cb();
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1/dist/jsQR.js';
+    s.onload = cb;
+    s.onerror = onError || function () { setSyncStatus('Kunde inte ladda QR-skannern (kolla internetanslutningen).'); };
+    document.head.appendChild(s);
+  }
+
+  function showQrModal() {
+    var url = document.getElementById('syncUrlInput').value.trim();
+    var anonKey = document.getElementById('syncKeyInput').value.trim();
+    var code = document.getElementById('syncCodeInput').value.trim();
+    if (!url || !anonKey || !code) {
+      setSyncStatus('Fyll i URL, anon key och en delningskod innan du visar QR-koden.');
+      return;
+    }
+    var blob = encodeSyncBlob(url, anonKey, code);
+    if (!blob) { setSyncStatus('Kunde inte skapa konfigurationen.'); return; }
+
+    var box = el('div', { class: 'modal-box' });
+    box.appendChild(el('h3', { text: 'Skanna med den andra enheten' }));
+    box.appendChild(el('p', { class: 'empty-hint', text: 'Öppna Shoppinglista på den andra enheten, gå till inställningar (⚙) och tryck "Skanna QR-kod".' }));
+    var canvasWrap = el('div', { class: 'qr-canvas-wrap' });
+    box.appendChild(canvasWrap);
+    var cancel = el('button', { type: 'button', class: 'modal-cancel', text: 'Stäng' });
+    cancel.addEventListener('click', closeModal);
+    box.appendChild(cancel);
+    openModal(box);
+
+    ensureQrEncodeLib(function () {
+      var canvas = document.createElement('canvas');
+      canvasWrap.appendChild(canvas);
+      window.QRCode.toCanvas(canvas, blob, { width: 240, margin: 1 }, function (err) {
+        if (err) canvasWrap.appendChild(el('p', { class: 'empty-hint', text: 'Kunde inte rita QR-koden.' }));
+      });
+    }, function () {
+      canvasWrap.appendChild(el('p', { class: 'empty-hint', text: 'Kunde inte ladda QR-biblioteket. Kontrollera internetanslutningen och försök igen.' }));
+    });
+  }
+
+  function showScanQrModal() {
+    var box = el('div', { class: 'modal-box' });
+    box.appendChild(el('h3', { text: 'Skanna QR-kod' }));
+    var statusP = el('p', { class: 'empty-hint', text: 'Startar kameran…' });
+    box.appendChild(statusP);
+    var videoWrap = el('div', { class: 'qr-video-wrap' });
+    var video = el('video', { playsinline: 'true', autoplay: 'true', muted: 'true' });
+    videoWrap.appendChild(video);
+    box.appendChild(videoWrap);
+    var cancel = el('button', { type: 'button', class: 'modal-cancel', text: 'Avbryt' });
+    cancel.addEventListener('click', closeModal);
+    box.appendChild(cancel);
+    openModal(box);
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      statusP.textContent = 'Kameran stöds inte i den här webbläsaren.';
+      return;
+    }
+
+    ensureQrDecodeLib(function () {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (stream) {
+        if (!openOverlay) { stream.getTracks().forEach(function (t) { t.stop(); }); return; } // modal closed while waiting for camera
+        activeScanStream = stream;
+        video.srcObject = stream;
+        statusP.textContent = 'Rikta kameran mot QR-koden.';
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext('2d', { willReadFrequently: true });
+        function tick() {
+          if (!activeScanStream) return;
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var found = window.jsQR(imageData.data, imageData.width, imageData.height);
+            if (found && found.data) {
+              var parsed = decodeSyncBlob(found.data);
+              if (parsed) {
+                closeModal();
+                document.getElementById('syncUrlInput').value = parsed.url;
+                document.getElementById('syncKeyInput').value = parsed.anonKey;
+                document.getElementById('syncCodeInput').value = parsed.code;
+                setSyncStatus('Konfiguration inläst från QR-kod. Tryck Anslut för att koppla upp.');
+                return;
+              }
+            }
+          }
+          requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      }).catch(function (e) {
+        statusP.textContent = 'Kunde inte starta kameran: ' + (e && e.message ? e.message : 'okänt fel');
+      });
+    }, function () {
+      statusP.textContent = 'Kunde inte ladda QR-skannern. Kontrollera internetanslutningen och försök igen.';
+    });
+  }
+
   function disconnectSync() {
     if (syncChannel && supabaseClient) {
       try { supabaseClient.removeChannel(syncChannel); } catch (e) {}
@@ -1626,8 +1751,13 @@
   /* ---- Small bottom-sheet modal, reused for "move item to another
      store" and the archive browser. ---- */
   var openOverlay = null;
+  var activeScanStream = null;
 
   function closeModal() {
+    if (activeScanStream) {
+      activeScanStream.getTracks().forEach(function (t) { t.stop(); });
+      activeScanStream = null;
+    }
     if (openOverlay && openOverlay.parentNode) openOverlay.parentNode.removeChild(openOverlay);
     openOverlay = null;
   }
@@ -2258,6 +2388,9 @@
     if (!code) return;
     if (navigator.clipboard) navigator.clipboard.writeText(code).catch(function () {});
   });
+
+  document.getElementById('syncShowQrBtn').addEventListener('click', showQrModal);
+  document.getElementById('syncScanQrBtn').addEventListener('click', showScanQrModal);
 
   document.getElementById('syncCopyAllBtn').addEventListener('click', function () {
     var url = document.getElementById('syncUrlInput').value.trim();
