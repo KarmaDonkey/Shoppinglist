@@ -41,7 +41,11 @@ inga AWS-nycklar sparas. Engångsinställning:
 2. **IAM → Roles → Create role → Web identity**: den providern, audience
    `sts.amazonaws.com`, GitHub organization `KarmaDonkey`, repository
    `Shoppinglist`, branch `main`. Hoppa över färdiga policyer, döp rollen till
-   t.ex. `gustaf-deploy`.
+   t.ex. `gustaf-deploy`. GitHub skickar numera id-nummer i sitt namn, så
+   ändra sedan i rollens Trust relationships villkoret
+   `token.actions.githubusercontent.com:sub` till
+   `repo:KarmaDonkey@296001559/Shoppinglist@1377823724:ref:refs/heads/main`
+   (steget "Show GitHub identity" i en körning visar exakt värde).
 3. På rollen: **Add permissions → Create inline policy → JSON**, med
    funktionens ARN (finns överst på Lambda-sidan) i stället för `FUNKTIONENS-ARN`:
    ```json
