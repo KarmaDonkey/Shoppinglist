@@ -1,0 +1,57 @@
+# Deploys the Gustaf Alexa skill's Lambda code whenever it changes on main.
+# Logs in to AWS with GitHub's OIDC token (no stored AWS keys). The role and
+# function name live in the repo's Actions secrets, not in this public file.
+name: Deploy Gustaf
+
+on:
+  push:
+    branches: [main]
+    paths: [alexa/lambda_function.py]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: deploy-gustaf
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check settings
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_ARN }}
+          FN: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        run: |
+          if [ -z "$ROLE" ] || [ -z "$FN" ]; then
+            echo "::error::Add the AWS_ROLE_ARN and LAMBDA_FUNCTION_NAME secrets (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-west-1
+
+      - name: Upload code
+        env:
+          FN: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        run: |
+          cd alexa && zip -q ../gustaf.zip lambda_function.py && cd ..
+          aws lambda update-function-code --function-name "$FN" --zip-file fileb://gustaf.zip --query LastUpdateStatus --output text
+          aws lambda wait function-updated --function-name "$FN"
+
+      # A LaunchRequest only returns a greeting, so this checks that the new
+      # code starts without touching the shopping list.
+      - name: Smoke test
+        env:
+          FN: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        run: |
+          err=$(aws lambda invoke --function-name "$FN" --cli-binary-format raw-in-base64-out \
+            --payload '{"request":{"type":"LaunchRequest"}}' --query FunctionError --output text out.json)
+          cat out.json; echo
+          if [ "$err" != "None" ]; then echo "::error::Gustaf crashed: $err"; exit 1; fi
+          grep -q outputSpeech out.json

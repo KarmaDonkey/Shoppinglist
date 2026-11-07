@@ -28,3 +28,35 @@ frasen (vara, butik, antal) → skriver till samma Supabase-rad som appens
 
 Felsökning: Lambda → Monitor → CloudWatch logs visar `heard` (vad Alexa
 uppfattade) och `parsed` (vad Claude gjorde av det) för varje anrop.
+
+## Automatisk deploy
+
+`.github/workflows/deploy-gustaf.yml` laddar upp `lambda_function.py` till
+Lambda varje gång filen ändras på `main` (går också att köra för hand under
+Actions → Deploy Gustaf → Run workflow). GitHub loggar in i AWS med OIDC –
+inga AWS-nycklar sparas. Engångsinställning:
+
+1. **IAM → Identity providers → Add provider**: OpenID Connect,
+   URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
+2. **IAM → Roles → Create role → Web identity**: den providern, audience
+   `sts.amazonaws.com`, GitHub organization `KarmaDonkey`, repository
+   `Shoppinglist`, branch `main`. Hoppa över färdiga policyer, döp rollen till
+   t.ex. `gustaf-deploy`.
+3. På rollen: **Add permissions → Create inline policy → JSON**, med
+   funktionens ARN (finns överst på Lambda-sidan) i stället för `FUNKTIONENS-ARN`:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": ["lambda:UpdateFunctionCode", "lambda:GetFunctionConfiguration", "lambda:InvokeFunction"],
+       "Resource": "FUNKTIONENS-ARN"
+     }]
+   }
+   ```
+4. **GitHub → repot → Settings → Secrets and variables → Actions → New
+   repository secret**: `AWS_ROLE_ARN` = rollens ARN, `LAMBDA_FUNCTION_NAME` =
+   funktionens namn.
+
+Varje deploy avslutas med ett rökprov (en LaunchRequest, som bara hälsar och
+inte rör listan).
