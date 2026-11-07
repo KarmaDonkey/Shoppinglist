@@ -53,6 +53,9 @@ def add_from_phrase(phrase):
     if not parsed or not parsed.get("item"):
         return ask("My apologies, I didn't quite catch that. Could you say it again?")
     item = parsed["item"]
+    # The list gets the Swedish name; Alexa's English voice says the English
+    # one, since "Mjölk" read by an English voice is hard to recognise.
+    spoken = (parsed.get("item_en") or item).strip()
     store = next((s for s in stores if s["name"] == parsed.get("store")), None)
     if store is None:
         store = next((s for s in stores if s["name"].lower() == FALLBACK_STORE.lower()), None)
@@ -61,15 +64,15 @@ def add_from_phrase(phrase):
             stores.append(store)
         if parsed.get("heard_store"):
             message = (f"I'm afraid I couldn't find a shop called {parsed['heard_store']}, "
-                       f"so I've put {item} under {FALLBACK_STORE} for now.")
+                       f"so I've put {spoken} on the unsorted list for now.")
         else:
-            message = f"Very good. {item} has been added to {FALLBACK_STORE}."
+            message = f"Very good. {spoken} has been added to the unsorted list."
     else:
         message = random.choice([
-            f"Very good. {item} has been added to {store['name']}.",
-            f"Certainly. I've put {item} on the {store['name']} list.",
-            f"Consider it done. {item}, for {store['name']}.",
-            f"Of course. {item} is on the list for {store['name']}.",
+            f"Very good. {spoken} has been added to {store['name']}.",
+            f"Certainly. I've put {spoken} on the {store['name']} list.",
+            f"Consider it done. {spoken}, for {store['name']}.",
+            f"Of course. {spoken} is on the list for {store['name']}.",
         ])
     store["items"].append({
         "id": os.urandom(6).hex(), "t": item, "qty": parsed.get("qty"),
@@ -98,7 +101,7 @@ def extract_item(phrase, store_names, item_names):
         f"Existing stores: {json.dumps(store_names, ensure_ascii=False)}\n"
         f"Items this family has bought before: {json.dumps(item_names, ensure_ascii=False)}\n"
         "Respond with ONLY JSON: {\"store\": string|null, \"heard_store\": string|null, "
-        "\"item\": string, \"qty\": string|null}.\n"
+        "\"item\": string, \"item_en\": string, \"qty\": string|null}.\n"
         "- store: copied EXACTLY from the existing stores list - the one the user most "
         "plausibly meant (store names are often misheard too, e.g. 'Ikea Maxi' for 'ICA Maxi'). "
         "Use null if no store was mentioned or none is a plausible match. Never invent a store name.\n"
@@ -106,6 +109,11 @@ def extract_item(phrase, store_names, item_names):
         "- item: if what was heard sounds like one of the items bought before, use that exact "
         "spelling. Otherwise the Swedish name of the grocery item with a capital first letter "
         "(e.g. 'milk' -> 'Mjölk', 'cinnamon buns' -> 'Kanelbullar').\n"
+        "- item_en: the same item in plain English, in lower case, for an English voice to read "
+        "aloud (e.g. 'Mjölk' -> 'milk', 'Kanelbullar' -> 'cinnamon buns', 'Filmjölk' -> "
+        "'soured milk'). A brand or product name with no English word stays as it is, but "
+        "written without å, ä or ö (e.g. 'Kexchoklad' -> 'Kexchoklad', 'Ölands mjölk' -> "
+        "'Olands milk').\n"
         "- qty: the quantity if one was said, else null."
     )
     body = json.dumps({
