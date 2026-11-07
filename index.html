@@ -237,6 +237,23 @@
     margin: 4px 0;
   }
   .qr-video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .qr-video-wrap.barcode { aspect-ratio: 4 / 3; }
+  .qr-video-wrap.barcode::after {
+    content: '';
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    top: 50%;
+    height: 2px;
+    background: rgba(255, 70, 70, 0.85);
+    box-shadow: 0 0 6px rgba(255, 70, 70, 0.8);
+  }
+  .scan-icon { width: 18px; height: 18px; display: block; margin: 0 auto; }
+  .scan-added { list-style: none; margin: 8px 0 0; padding: 0; font-size: 14px; color: var(--ink-soft); }
+  .scan-added li { padding: 3px 0; }
+  .scan-unknown { margin-top: 10px; }
+  .scan-unknown .scan-unknown-row { display: flex; gap: 8px; margin-top: 8px; }
+  .scan-unknown .scan-unknown-row button { flex: 1; margin-top: 0; }
 
   .members-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hairline); }
   .members-list { margin-bottom: 6px; }
@@ -595,6 +612,7 @@
   <div class="toolbar">
     <button type="button" id="uncheckAllBtn">Avmarkera alla</button>
     <button type="button" id="clearCheckedBtn">Ta bort avbockade</button>
+    <button type="button" id="barcodeScanBtn" class="icon-toolbar-btn" title="Skanna streckkod" aria-label="Skanna streckkod"><svg class="scan-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/></svg></button>
     <button type="button" id="settingsToggleBtn" class="icon-toolbar-btn" title="Dela lista">⚙</button>
   </div>
 
@@ -685,7 +703,7 @@
     <button type="submit">Lägg till</button>
   </form>
 
-  <div class="app-version mono">Shoppinglista v1.22</div>
+  <div class="app-version mono">Shoppinglista v1.23</div>
 </div>
 
 <script>
@@ -696,6 +714,9 @@
   var USER_KEY = 'shoppinglista-anvandare-v1';
   var SYNC_KEY = 'shoppinglista-sync-v1';
   var STORE_HISTORY_MONTHS = 4;
+  var LAST_SCAN_STORE_KEY = 'shoppinglista-senaste-skannbutik-v1';
+  var ZXING_SRC = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+  var SCAN_ICON_SVG = '<svg class="scan-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>';
 
   function genId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -975,6 +996,7 @@
   lists.shared.archive.forEach(function (trip) { migrateStores(trip.stores); });
   migrateStores(lists.personal.stores);
   if (!Array.isArray(lists.shared.members)) lists.shared.members = [];
+  if (!lists.shared.barcodes || typeof lists.shared.barcodes !== 'object') lists.shared.barcodes = {};
   if (!lists.shared.activeTrip.date) lists.shared.activeTrip.date = todayStr();
 
   var activeListKey = loadActiveListKey();
@@ -1674,6 +1696,263 @@
     });
   }
 
+  /* ---- Streckkodsskanning (EAN/UPC). Live camera frames are decoded in
+     memory with ZXing - nothing is photographed or saved. A scanned code
+     is looked up first among names the family has already confirmed
+     (lists.shared.barcodes, synced with the shared list), then in Open
+     Food Facts; an unknown code asks for a name once and remembers it. ---- */
+  function ensureBarcodeLib(cb, onError) {
+    if (window.ZXing) return cb();
+    var s = document.createElement('script');
+    s.src = ZXING_SRC;
+    s.onload = cb;
+    s.onerror = onError;
+    document.head.appendChild(s);
+  }
+
+  // onCode(code, resume) runs once per hit with the decoder paused; call
+  // resume() to keep scanning, or close the modal to stop.
+  function startBarcodeScanner(video, statusP, onCode) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      statusP.textContent = 'Kameran stöds inte i den här webbläsaren.';
+      return;
+    }
+    ensureBarcodeLib(function () {
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      }).then(function (stream) {
+        if (!openOverlay) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        activeScanStream = stream;
+        video.srcObject = stream;
+        statusP.textContent = 'Håll streckkoden framför kameran, längs den röda linjen.';
+        var Z = window.ZXing;
+        var hints = new Map();
+        hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E]);
+        hints.set(Z.DecodeHintType.TRY_HARDER, true);
+        var reader = new Z.MultiFormatReader();
+        reader.setHints(hints);
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext('2d', { willReadFrequently: true });
+        var paused = false;
+        function resume() { paused = false; }
+        function tick() {
+          if (activeScanStream !== stream) return;
+          if (!paused && video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth) {
+            var scale = Math.min(1, 800 / video.videoWidth);
+            canvas.width = Math.round(video.videoWidth * scale);
+            canvas.height = Math.round(video.videoHeight * scale);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            var code = null;
+            try {
+              var bitmap = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
+              code = reader.decode(bitmap).getText();
+            } catch (e) { /* no barcode in this frame */ }
+            if (code) {
+              paused = true;
+              onCode(code, resume);
+            }
+          }
+          setTimeout(tick, 150);
+        }
+        tick();
+      }).catch(function (e) {
+        statusP.textContent = 'Kunde inte starta kameran: ' + (e && e.message ? e.message : 'okänt fel');
+      });
+    }, function () {
+      statusP.textContent = 'Kunde inte ladda streckkodsläsaren. Kontrollera internetanslutningen och försök igen.';
+    });
+  }
+
+  function lookupBarcode(code, cb) {
+    var saved = lists.shared.barcodes[code];
+    if (saved) return cb({ name: saved, source: 'saved' });
+    var done = false;
+    function finish(result) { if (!done) { done = true; cb(result); } }
+    setTimeout(function () { finish({ name: '', source: 'none' }); }, 6000);
+    fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) +
+          '.json?fields=product_name_sv,product_name,generic_name_sv,brands,quantity')
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var p = data && data.status === 1 ? data.product || {} : null;
+        var name = p ? (p.product_name_sv || p.product_name || p.generic_name_sv || '').trim() : '';
+        if (!name) return finish({ name: '', source: 'none' });
+        var details = [p.brands, p.quantity].filter(function (x) { return x && String(x).trim(); }).join(' · ');
+        finish({ name: tidyText(name), details: details, source: 'off' });
+      })
+      .catch(function () { finish({ name: '', source: 'none' }); });
+  }
+
+  function rememberBarcode(code, name) {
+    if (lists.shared.barcodes[code] === name) return;
+    lists.shared.barcodes[code] = name;
+    persistLists();
+    scheduleSync();
+  }
+
+  // Where has this item usually been bought? Falls back to the store last
+  // scanned into, then the first store on the list.
+  function suggestStoreFor(itemName) {
+    var key = (itemName || '').trim().toLowerCase();
+    var counts = {};
+    if (key) {
+      collectAllStoreRecords().forEach(function (s) {
+        s.items.forEach(function (it) {
+          if ((it.t || '').trim().toLowerCase() === key) counts[s.name] = (counts[s.name] || 0) + 1;
+        });
+      });
+    }
+    var best = null;
+    Object.keys(counts).forEach(function (n) {
+      if (findStoreByName(n) && (!best || counts[n] > counts[best])) best = n;
+    });
+    if (best) return findStoreByName(best).name;
+    var last = null;
+    try { last = localStorage.getItem(LAST_SCAN_STORE_KEY); } catch (e) {}
+    if (last && findStoreByName(last)) return findStoreByName(last).name;
+    return state.length ? state[0].name : 'Osorterat';
+  }
+
+  function addScannedItem(storeName, code, name, qty) {
+    var store = getOrCreateStoreByName(storeName);
+    rememberBarcode(code, tidyText(name));
+    try { localStorage.setItem(LAST_SCAN_STORE_KEY, store.name); } catch (e) {}
+    addItem(store.id, name, qty);
+    return store.name;
+  }
+
+  function scannerModal(title) {
+    var box = el('div', { class: 'modal-box' });
+    box.appendChild(el('h3', { text: title }));
+    var statusP = el('p', { class: 'empty-hint', text: 'Startar kameran…' });
+    box.appendChild(statusP);
+    var videoWrap = el('div', { class: 'qr-video-wrap barcode' });
+    var video = el('video', { playsinline: 'true', autoplay: 'true', muted: 'true' });
+    videoWrap.appendChild(video);
+    box.appendChild(videoWrap);
+    return { box: box, statusP: statusP, video: video };
+  }
+
+  // Toolbar button: scan one item, then confirm name, quantity and store.
+  function showBarcodeScanModal() {
+    var m = scannerModal('Skanna streckkod');
+    var cancel = el('button', { type: 'button', class: 'modal-cancel', text: 'Avbryt' });
+    cancel.addEventListener('click', closeModal);
+    m.box.appendChild(cancel);
+    openModal(m.box);
+    var overlay = openOverlay;
+    startBarcodeScanner(m.video, m.statusP, function (code) {
+      m.statusP.textContent = 'Hittade ' + code + ', letar upp varan…';
+      lookupBarcode(code, function (found) {
+        if (openOverlay !== overlay) return;
+        showScannedItemModal(code, found);
+      });
+    });
+  }
+
+  function showScannedItemModal(code, found) {
+    var box = el('div', { class: 'modal-box' });
+    box.appendChild(el('h3', { text: 'Lägg till skannad vara' }));
+    var hint;
+    if (found.source === 'off') hint = 'Hittad i Open Food Facts' + (found.details ? ': ' + found.details : '') + '. Korta gärna ner namnet - appen kommer ihåg det du sparar.';
+    else if (found.source === 'saved') hint = 'Känd vara - appen kommer ihåg den sedan tidigare.';
+    else hint = 'Okänd streckkod (' + code + '). Skriv vad det är, så känner appen igen den nästa gång.';
+    box.appendChild(el('p', { class: 'empty-hint', text: hint }));
+
+    box.appendChild(el('label', { text: 'Vara' }));
+    var nameInput = el('input', { type: 'text', value: found.name, placeholder: 'T.ex. Pumpakärnor' });
+    box.appendChild(nameInput);
+
+    box.appendChild(el('label', { text: 'Antal' }));
+    var qtyInput = el('input', { type: 'text', placeholder: 'Valfritt' });
+    box.appendChild(qtyInput);
+
+    box.appendChild(el('label', { text: 'Affär' }));
+    var select = el('select');
+    var names = state.map(function (s) { return s.name; });
+    if (!names.some(function (n) { return n.toLowerCase() === 'osorterat'; })) names.push('Osorterat');
+    var suggested = suggestStoreFor(found.name);
+    names.forEach(function (n) {
+      var opt = el('option', { value: n, text: n });
+      if (n === suggested) opt.selected = true;
+      select.appendChild(opt);
+    });
+    box.appendChild(select);
+
+    var addBtn = el('button', { type: 'button', class: 'modal-save', text: 'Lägg till' });
+    addBtn.addEventListener('click', function () {
+      var name = nameInput.value.trim();
+      if (!name) { nameInput.focus(); return; }
+      addScannedItem(select.value, code, name, qtyInput.value);
+      closeModal();
+    });
+    box.appendChild(addBtn);
+    var cancel = el('button', { type: 'button', class: 'modal-cancel', text: 'Avbryt' });
+    cancel.addEventListener('click', closeModal);
+    box.appendChild(cancel);
+    openModal(box);
+    if (!found.name) nameInput.focus();
+  }
+
+  // Store-card button: keep scanning straight into one store until "Klar".
+  function showStoreScanModal(storeName) {
+    var m = scannerModal('Skanna till ' + storeName);
+    var addedList = el('ul', { class: 'scan-added' });
+    m.box.appendChild(addedList);
+    var unknownWrap = el('div', { class: 'scan-unknown' });
+    m.box.appendChild(unknownWrap);
+    var done = el('button', { type: 'button', class: 'modal-cancel', text: 'Klar' });
+    done.addEventListener('click', closeModal);
+    m.box.appendChild(done);
+    openModal(m.box);
+    var overlay = openOverlay;
+
+    // A package held in front of the camera keeps being seen; it counts once
+    // until it has been out of view for a moment. To add two of the same,
+    // move it away and scan it again.
+    var lastCode = null, lastSeenAt = 0;
+    function added(name, resume) {
+      addedList.insertBefore(el('li', { text: '✓ ' + name }), addedList.firstChild);
+      m.statusP.textContent = 'La till ' + name + '. Skanna nästa…';
+      lastSeenAt = Date.now();
+      setTimeout(resume, 800);
+    }
+    startBarcodeScanner(m.video, m.statusP, function (code, resume) {
+      var now = Date.now();
+      if (code === lastCode && now - lastSeenAt < 2000) { lastSeenAt = now; return resume(); }
+      lastCode = code;
+      lastSeenAt = now;
+      m.statusP.textContent = 'Hittade ' + code + ', letar upp varan…';
+      lookupBarcode(code, function (found) {
+        if (openOverlay !== overlay) return;
+        if (found.name) {
+          addScannedItem(storeName, code, found.name, '');
+          return added(found.name, resume);
+        }
+        m.statusP.textContent = 'Okänd streckkod (' + code + ').';
+        unknownWrap.innerHTML = '';
+        var input = el('input', { type: 'text', placeholder: 'Vad är det för vara?' });
+        var saveBtn = el('button', { type: 'button', class: 'modal-save', text: 'Lägg till' });
+        var skipBtn = el('button', { type: 'button', class: 'modal-cancel', text: 'Hoppa över' });
+        saveBtn.addEventListener('click', function () {
+          var name = input.value.trim();
+          if (!name) { input.focus(); return; }
+          unknownWrap.innerHTML = '';
+          addScannedItem(storeName, code, name, '');
+          added(tidyText(name), resume);
+        });
+        skipBtn.addEventListener('click', function () {
+          unknownWrap.innerHTML = '';
+          m.statusP.textContent = 'Skanna nästa…';
+          lastSeenAt = Date.now();
+          resume();
+        });
+        unknownWrap.appendChild(input);
+        unknownWrap.appendChild(el('div', { class: 'scan-unknown-row' }, [skipBtn, saveBtn]));
+        input.focus();
+      });
+    });
+  }
+
   function disconnectSync() {
     if (syncChannel && supabaseClient) {
       try { supabaseClient.removeChannel(syncChannel); } catch (e) {}
@@ -1692,6 +1971,9 @@
     lists.shared.activeTrip = payload.activeTrip;
     lists.shared.archive = payload.archive || [];
     lists.shared.members = payload.members || [];
+    // Merged, not replaced: a device still on an older app version pushes
+    // without barcodes, and that mustn't wipe what the family has taught it.
+    if (payload.barcodes) lists.shared.barcodes = Object.assign({}, lists.shared.barcodes, payload.barcodes);
     migrateStores(lists.shared.activeTrip.stores);
     lists.shared.archive.forEach(function (trip) { migrateStores(trip.stores); });
     if (activeListKey === 'shared') state = lists.shared.activeTrip.stores;
@@ -1716,7 +1998,7 @@
     if (!supabaseClient || !syncConfig) return;
     supabaseClient.from('lists').upsert({
       id: syncConfig.code,
-      data: { activeTrip: lists.shared.activeTrip, archive: lists.shared.archive, members: lists.shared.members },
+      data: { activeTrip: lists.shared.activeTrip, archive: lists.shared.archive, members: lists.shared.members, barcodes: lists.shared.barcodes },
       updated_at: new Date().toISOString()
     }).then(function (res) { if (res.error) setSyncStatus('Fel vid synk: ' + res.error.message); })
       .catch(function (e) { setSyncStatus('Fel vid synk: ' + e.message); });
@@ -1998,7 +2280,11 @@
     if (isLast) downBtn.disabled = true;
     downBtn.addEventListener('click', function () { moveStoreUpDown(store.id, 1); });
 
-    var actions = [upBtn, downBtn, deleteBtn];
+    var scanBtn = el('button', { type: 'button', class: 'icon-btn', title: 'Skanna varor till ' + store.name, 'aria-label': 'Skanna varor till ' + store.name });
+    scanBtn.innerHTML = SCAN_ICON_SVG;
+    scanBtn.addEventListener('click', function () { showStoreScanModal(store.name); });
+
+    var actions = [scanBtn, upBtn, downBtn, deleteBtn];
     if (store.phone) {
       var callBtn = el('a', {
         class: 'icon-btn call',
@@ -2391,6 +2677,7 @@
 
   document.getElementById('syncShowQrBtn').addEventListener('click', showQrModal);
   document.getElementById('syncScanQrBtn').addEventListener('click', showScanQrModal);
+  document.getElementById('barcodeScanBtn').addEventListener('click', showBarcodeScanModal);
 
   document.getElementById('syncCopyAllBtn').addEventListener('click', function () {
     var url = document.getElementById('syncUrlInput').value.trim();
