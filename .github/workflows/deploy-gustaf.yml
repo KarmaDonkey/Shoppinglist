@@ -31,6 +31,28 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # Diagnostics for a failed AWS login: prints who GitHub says this run is
+      # (the "sub" the IAM role's trust policy must match) and whether the
+      # role secret has the shape of a role ARN, without printing its value.
+      - name: Show GitHub identity
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          python3 - <<'PY'
+          import os, re, json, base64, urllib.request
+          req = urllib.request.Request(
+              os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=sts.amazonaws.com",
+              headers={"Authorization": "bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
+          payload = json.load(urllib.request.urlopen(req))["value"].split(".")[1]
+          claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+          print("sub:", claims["sub"])
+          print("aud:", claims["aud"])
+          role = os.environ["ROLE"]
+          print("AWS_ROLE_ARN looks like an IAM role ARN:",
+                bool(re.fullmatch(r"arn:aws:iam::\d{12}:role/[\w+=,.@/-]+", role)))
+          print("AWS_ROLE_ARN has spaces or line breaks:", role != role.strip())
+          PY
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
